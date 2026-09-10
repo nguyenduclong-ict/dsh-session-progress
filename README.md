@@ -1,138 +1,135 @@
 # dsh-session-progress
 
-> **Session Progress Tracker for DeepSeek Harness (DSH)**
-
-`dsh-session-progress` is a DSH plugin that enables real-time progress tracking for sessions. It instructs the AI Agent to maintain a parallel Markdown progress file with structured YAML frontmatter in the system's temporary directory (`os.tmpdir()`), automatically calculates completion percentages (`%`), mounts a live progress button onto the Top Header, and renders an interactive **Slide-over Side Drawer** for instant status inspection.
+[English](#english) | [Tiếng Việt](#tiếng-việt)
 
 ---
 
-## Features
+<a name="english"></a>
+## English
 
-- **System Prompt Injection with Language Alignment**:
-  - Injects instructions into `ctx.systemPrompt` directing the agent to maintain a live markdown file with milestones, checklists, and YAML frontmatter at `dsh-progress-${sessionId}-${uuid}.md` in `os.tmpdir()`.
-  - **Adaptive Language Support**: Prompts the Agent to write headings, descriptions, and checklists in Vietnamese when the user chats in Vietnamese, or English when chatting in English, while keeping machine-readable YAML keys strictly in English.
-- **YAML Frontmatter & Dual-Engine Progress Calculation**:
-  - **YAML Frontmatter Engine (Highest Priority)**: Parses structured metadata at the top of the file:
-    ```yaml
-    ---
-    progress: 65%
-    status: in_progress
-    current_activity: "Running backtest wave 3"
-    ---
-    ```
-  - **Checklist Engine (Automatic Fallback)**: Calculates completion percentage based on checklist items (`- [x]`, `- [/]`, `- [ ]`).
-- **Top Header Live Button**:
-  - Registered directly into DSH's native slot `conversation.session.header.utilities` (ordered before `Session log`).
-  - Displays `📋 Progress XX%` with an animated pill badge (green when 100% completed).
-  - Includes automated DOM observer fallback.
-- **Slide-over Side Drawer (Right Panel)**:
-  - 440px wide sliding drawer smoothly transitioning from the right edge.
-  - Header with title, live status badge (`IN PROGRESS`, `COMPLETED`, `PAUSED`), and active step banner (`⚡ <current_activity>`).
-  - Graphical gradient progress bar (`#3b82f6` -> `#10b981`).
-  - Lightweight built-in Markdown renderer with custom styling for headers, blockquotes, code snippets, and checklists (cleanly stripping raw frontmatter from the visible body).
-  - Quick action toolbar:
-    - **Open File**: Opens the raw Markdown progress file directly in the OS default editor (VS Code, Notepad, etc.).
-    - **Copy**: Copies the raw Markdown to the clipboard.
-    - **Refresh**: Manually triggers an immediate synchronization.
-    - **Close / Escape**: Quickly dismisses the drawer.
-- **Live Auto-polling**: Real-time updates every 1.5s when the drawer is open, and 3s when closed.
+### 1. Purpose & Overview
+
+**dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
+
+In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs. 
+
+**dsh-session-progress** solves this by:
+- **System Prompt Injection**: Automatically injects prompt instructions that direct the AI Agent to maintain a structured Markdown progress file in the OS temporary directory (`os.tmpdir()`).
+- **Structured YAML Frontmatter & Dual-Engine % Calculation**:
+  - Automatically extracts progress percentage, execution status (`starting`, `in_progress`, `blocked`, `completed`), and the active step from the file's YAML frontmatter.
+  - Automatically falls back to parsing standard Markdown task checklists (`- [x]`, `- [/]`, `- [ ]`) if frontmatter is omitted.
+- **Adaptive Language Alignment**: Instructs the Agent to match the conversation language (e.g., Vietnamese, English) for all section headers, checklists, and task summaries while maintaining English YAML keys.
+- **Top Header Live Button**: Mounts directly into DSH's native header slot (`conversation.session.header.utilities`) adjacent to the *Session log* button, showing a live percentage pill badge (`📋 Progress XX%`).
+- **Slide-over Side Drawer**: Opens a smooth 440px right-side panel featuring:
+  - A visual gradient progress bar and active status indicators.
+  - Formatted Markdown viewer with rendered checkboxes and highlighted sections.
+  - Quick action buttons to open the raw file in the OS default editor (VS Code, Notepad), copy markdown, or trigger instant refresh.
 
 ---
 
-## Markdown File Structure
+### 2. Installation Guide
 
-```markdown
+#### For DSH Desktop
+
+##### Windows (PowerShell)
+```powershell
+cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
+& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
+
+##### macOS (Terminal)
+```bash
+cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
+"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
+
+##### Linux (Terminal)
+```bash
+cd "$HOME/.config/dsh-desktop/harness/profiles/web"
+"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
+
+> **Note**: Restart **DSH Desktop** after installation to activate the plugin.
+
 ---
-progress: 65%
-status: in_progress
-current_activity: "Running test suites"
----
 
-# Session Progress: <Goal Title>
+#### For DSH CLI (Standalone)
 
-## Overview
-<Brief summary of session objective and current status>
+Run the following command in your terminal:
 
-## Checklist
-- [x] Step 1 completed
-- [/] Step 2 currently executing
-- [ ] Step 3 pending
+```bash
+dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
 
-## Current Activity
-<Details of what is currently executing>
+Or install directly within your Cordis workspace profile:
 
-## Next Steps
-<Planned immediate actions>
-
-## Key Findings / Notes
-<Important takeaways, metrics, or blocker alerts>
+```bash
+pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
 ---
 
-## Installation & Registration
+<a name="tiếng-việt"></a>
+## Tiếng Việt
 
-### 1. Register in `cordis.patch.yml`
+### 1. Công dụng của Plugin
 
-```yaml
-- insert:
-    - id: dsh-session-progress
-      name: dsh-session-progress
-```
+**dsh-session-progress** là plugin theo dõi tiến độ công việc và phiên làm việc theo thời gian thực dành cho **DeepSeek Harness (DSH / DSH Desktop)**.
 
-### 2. Client Injection
+Trong các phiên làm việc dài hoặc xử lý nhiều tác vụ phức tạp, người dùng thường gặp khó khăn trong việc nắm bắt tiến độ tổng thể, các đầu việc đã hoàn thành hay công việc đang chạy nếu chỉ nhìn vào luồng chat dài.
 
-In `package.json`:
-```json
-{
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-slots"
-      ],
-      "immediately": true,
-      "platform": "web"
-    }
-  }
-}
-```
+**dsh-session-progress** giải quyết triệt để vấn đề này với các công dụng nổi bật:
+- **Tự động tiêm hướng dẫn vào System Prompt**: Yêu cầu AI Agent duy trì song song một file Markdown tóm tắt tiến độ tại thư mục tạm của hệ điều hành (`os.tmpdir()`), đảm bảo không làm ô nhiễm thư mục code dự án của bạn.
+- **Hỗ trợ YAML Frontmatter & Tính % Đa tầng**:
+  - Đọc và bóc tách dữ liệu có cấu trúc ở đầu file (`progress: XX%`, `status: in_progress`, `current_activity: "..."`).
+  - Tự động fallback đếm số lượng checklist Markdown (`- [x]`, `- [/]`, `- [ ]`) để tính tỷ lệ hoàn thành % nếu Agent quên khai báo số.
+- **Tự động thích ứng ngôn ngữ (Language Alignment)**: Nếu bạn giao tiếp bằng tiếng Việt, Agent sẽ tự động viết toàn bộ tiêu đề, checklist và nội dung công việc bằng tiếng Việt; nếu chat tiếng Anh sẽ viết bằng tiếng Anh.
+- **Nút tiến độ trực quan trên Top Header**: Tích hợp trực tiếp vào thanh điều hướng trên cùng, nằm ngay trước nút *Session log*, hiển thị số `%` và đổi màu xanh lá khi đạt 100%.
+- **Ngăn kéo trượt Slide-over Side Drawer**: Click vào nút trên Header sẽ trượt ra một bảng thông tin 440px từ cạnh phải:
+  - Thanh tiến độ đồ họa trực quan (Progress bar).
+  - Trình đọc Markdown tích hợp sẵn định dạng checkbox, đầu việc rõ ràng.
+  - Các nút thao tác nhanh: Mở file trên ứng dụng hệ điều hành (VS Code, Notepad), sao chép nội dung Markdown, làm mới dữ liệu.
 
 ---
 
-## API Endpoints
+### 2. Hướng dẫn cài đặt
 
-### `GET /api/session-progress/content?sessionId=<id>`
-Returns JSON with the parsed progress, frontmatter metadata, and raw markdown content:
-```json
-{
-  "success": true,
-  "found": true,
-  "sessionId": "session-1234",
-  "filePath": "/tmp/dsh-progress-session-1234-uuid.md",
-  "fileName": "dsh-progress-session-1234-uuid.md",
-  "percent": 65,
-  "status": "in_progress",
-  "currentActivity": "Running test suites",
-  "tasksTotal": 10,
-  "tasksDone": 6,
-  "tasksInProgress": 1,
-  "tasksPending": 3,
-  "content": "---\nprogress: 65%\n...",
-  "lastModified": 1726000000000
-}
+#### Dành cho DSH Desktop
+
+##### Trên Windows (PowerShell)
+```powershell
+cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
+& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-### `POST /api/session-progress/open`
-Opens the progress file on the host OS:
-```json
-{
-  "sessionId": "session-1234",
-  "filePath": "C:\\Users\\...\\dsh-progress-...md"
-}
+##### Trên macOS (Terminal)
+```bash
+cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
+"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
+
+##### Trên Linux (Terminal)
+```bash
+cd "$HOME/.config/dsh-desktop/harness/profiles/web"
+"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
+
+> **Lưu ý**: Sau khi lệnh cài đặt hoàn tất, hãy khởi động lại ứng dụng **DSH Desktop** để plugin bắt đầu hoạt động.
+
+---
+
+#### Dành cho DSH CLI
+
+Nếu bạn sử dụng giao diện dòng lệnh `dsh`:
+
+```bash
+dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-session-progress
+```
+
+Hoặc cài đặt trực tiếp qua `pnpm` trong thư mục profile Cordis:
+
+```bash
+pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
 ---
