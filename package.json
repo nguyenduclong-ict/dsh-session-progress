@@ -1,0 +1,47 @@
+{
+  "name": "dsh-task-progress",
+  "version": "0.1.0",
+  "description": "Session task progress tracker with System Prompt injection and Slide-over Drawer for DeepSeek Harness",
+  "type": "module",
+  "main": "./index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nguyenduclong-ict/dsh-task-progress.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "task",
+    "progress",
+    "markdown",
+    "drawer",
+    "ui"
+  ],
+  "author": "nguyenduclong-ict",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "immediately": true,
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.2-alpha.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.2-alpha.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.2-rc.1"
+  }
+}
