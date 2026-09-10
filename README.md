@@ -1,13 +1,10 @@
 # dsh-session-progress
 
-[English](#english) | [Tiếng Việt](#tiếng-việt)
+[English](README.md) | [Tiếng Việt](README.vn.md)
 
 ---
 
-<a name="english"></a>
-## English
-
-### 1. Purpose & Overview
+## 1. Purpose & Overview
 
 **dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
 
@@ -27,23 +24,23 @@ In long-running or complex agentic sessions, it is often challenging for users t
 
 ---
 
-### 2. Installation Guide
+## 2. Installation Guide
 
-#### For DSH Desktop
+### For DSH Desktop
 
-##### Windows (PowerShell)
+#### Windows (PowerShell)
 ```powershell
 cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
 & "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-##### macOS (Terminal)
+#### macOS (Terminal)
 ```bash
 cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
 "$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-##### Linux (Terminal)
+#### Linux (Terminal)
 ```bash
 cd "$HOME/.config/dsh-desktop/harness/profiles/web"
 "$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
@@ -53,7 +50,7 @@ cd "$HOME/.config/dsh-desktop/harness/profiles/web"
 
 ---
 
-#### For DSH CLI (Standalone)
+### For DSH CLI (Standalone)
 
 Run the following command in your terminal:
 
@@ -69,67 +66,33 @@ pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
 
 ---
 
-<a name="tiếng-việt"></a>
-## Tiếng Việt
+## 3. Sample Markdown Structure
 
-### 1. Công dụng của Plugin
-
-**dsh-session-progress** là plugin theo dõi tiến độ công việc và phiên làm việc theo thời gian thực dành cho **DeepSeek Harness (DSH / DSH Desktop)**.
-
-Trong các phiên làm việc dài hoặc xử lý nhiều tác vụ phức tạp, người dùng thường gặp khó khăn trong việc nắm bắt tiến độ tổng thể, các đầu việc đã hoàn thành hay công việc đang chạy nếu chỉ nhìn vào luồng chat dài.
-
-**dsh-session-progress** giải quyết triệt để vấn đề này với các công dụng nổi bật:
-- **Tự động tiêm hướng dẫn vào System Prompt**: Yêu cầu AI Agent duy trì song song một file Markdown tóm tắt tiến độ tại thư mục tạm của hệ điều hành (`os.tmpdir()`), đảm bảo không làm ô nhiễm thư mục code dự án của bạn.
-- **Hỗ trợ YAML Frontmatter & Tính % Đa tầng**:
-  - Đọc và bóc tách dữ liệu có cấu trúc ở đầu file (`progress: XX%`, `status: in_progress`, `current_activity: "..."`).
-  - Tự động fallback đếm số lượng checklist Markdown (`- [x]`, `- [/]`, `- [ ]`) để tính tỷ lệ hoàn thành % nếu Agent quên khai báo số.
-- **Tự động thích ứng ngôn ngữ (Language Alignment)**: Nếu bạn giao tiếp bằng tiếng Việt, Agent sẽ tự động viết toàn bộ tiêu đề, checklist và nội dung công việc bằng tiếng Việt; nếu chat tiếng Anh sẽ viết bằng tiếng Anh.
-- **Nút tiến độ trực quan trên Top Header**: Tích hợp trực tiếp vào thanh điều hướng trên cùng, nằm ngay trước nút *Session log*, hiển thị số `%` và đổi màu xanh lá khi đạt 100%.
-- **Ngăn kéo trượt Slide-over Side Drawer**: Click vào nút trên Header sẽ trượt ra một bảng thông tin 440px từ cạnh phải:
-  - Thanh tiến độ đồ họa trực quan (Progress bar).
-  - Trình đọc Markdown tích hợp sẵn định dạng checkbox, đầu việc rõ ràng.
-  - Các nút thao tác nhanh: Mở file trên ứng dụng hệ điều hành (VS Code, Notepad), sao chép nội dung Markdown, làm mới dữ liệu.
-
+```markdown
+---
+progress: 65%
+status: in_progress
+current_activity: "Running test suites"
 ---
 
-### 2. Hướng dẫn cài đặt
+# Session Progress: <Goal Title>
 
-#### Dành cho DSH Desktop
+## Overview
+<Brief summary of session objective and current status>
 
-##### Trên Windows (PowerShell)
-```powershell
-cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
-& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-session-progress
-```
+## Checklist
+- [x] Step 1 completed
+- [/] Step 2 currently executing
+- [ ] Step 3 pending
 
-##### Trên macOS (Terminal)
-```bash
-cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
-"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
-```
+## Current Activity
+<Details of what is currently executing>
 
-##### Trên Linux (Terminal)
-```bash
-cd "$HOME/.config/dsh-desktop/harness/profiles/web"
-"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
-```
+## Next Steps
+<Planned immediate actions>
 
-> **Lưu ý**: Sau khi lệnh cài đặt hoàn tất, hãy khởi động lại ứng dụng **DSH Desktop** để plugin bắt đầu hoạt động.
-
----
-
-#### Dành cho DSH CLI
-
-Nếu bạn sử dụng giao diện dòng lệnh `dsh`:
-
-```bash
-dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-session-progress
-```
-
-Hoặc cài đặt trực tiếp qua `pnpm` trong thư mục profile Cordis:
-
-```bash
-pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
+## Key Findings / Notes
+<Important takeaways, metrics, or blocker alerts>
 ```
 
 ---
