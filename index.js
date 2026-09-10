@@ -4,7 +4,7 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 
-export const name = 'dsh-task-progress';
+export const name = 'dsh-session-progress';
 export const inject = ['webServer'];
 
 // Map: sessionId -> { filePath, uuid, sessionId, createdAt, lastUpdated }
@@ -73,7 +73,7 @@ function getOrCreateSessionProgress(sessionId) {
   const fileName = `dsh-progress-${safeId}-${fileUuid}.md`;
   const filePath = path.join(tmpDir, fileName);
 
-  const initialContent = `# Session Task Progress
+  const initialContent = `# Session Progress
 **Progress**: 0%
 
 ## Overview
@@ -184,28 +184,28 @@ function openInDefaultApp(targetPath) {
   const platform = process.platform;
   if (platform === 'win32') {
     execFile('cmd', ['/c', 'start', '', targetPath], (err) => {
-      if (err) console.error('[dsh-task-progress] Failed to open file on Windows:', err);
+      if (err) console.error('[dsh-session-progress] Failed to open file on Windows:', err);
     });
   } else if (platform === 'darwin') {
     execFile('open', [targetPath], (err) => {
-      if (err) console.error('[dsh-task-progress] Failed to open file on macOS:', err);
+      if (err) console.error('[dsh-session-progress] Failed to open file on macOS:', err);
     });
   } else {
     execFile('xdg-open', [targetPath], (err) => {
-      if (err) console.error('[dsh-task-progress] Failed to open file on Linux:', err);
+      if (err) console.error('[dsh-session-progress] Failed to open file on Linux:', err);
     });
   }
   return true;
 }
 
 export function apply(ctx) {
-  ctx.logger?.info?.('dsh-task-progress plugin loading...');
+  ctx.logger?.info?.('dsh-session-progress plugin loading...');
 
   // 1. Inject System Prompt instructions
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
       promptCtx.systemPrompt.section({
-        name: 'task:progress',
+        name: 'session:progress',
         order: promptCtx.systemPrompt.getSectionOrder?.('PLAN_POLICY') ?? 500,
         text: (context) => {
           const agent = context?.agent || context?.scope;
@@ -214,8 +214,8 @@ export function apply(ctx) {
           const record = getOrCreateSessionProgress(sessionId);
 
           return `
-# LIVE SESSION TASK PROGRESS TRACKING
-You MUST maintain and continuously update a Markdown task progress file for this session at:
+# LIVE SESSION PROGRESS TRACKING
+You MUST maintain and continuously update a Markdown progress file for this session at:
 \`${record.filePath}\`
 
 ## RULES & REQUIREMENTS:
@@ -227,7 +227,7 @@ You MUST maintain and continuously update a Markdown task progress file for this
    - [/] In-progress task description
    - [ ] Pending task description
 4. Organize the document with the following clean sections:
-   # Session Task Progress: <Goal / Task Title>
+   # Session Progress: <Goal / Task Title>
    **Progress**: <0-100>%
 
    ## Overview
@@ -252,149 +252,148 @@ Always keep this file concise, clear, and up-to-date so the user can follow live
 `;
         }
       });
-      ctx.logger?.info?.('dsh-task-progress registered systemPrompt section "task:progress"');
+      ctx.logger?.info?.('dsh-session-progress registered systemPrompt section "session:progress"');
     } catch (e) {
-      ctx.logger?.warn?.(`[dsh-task-progress] Failed to register systemPrompt section: ${e?.message || e}`);
+      ctx.logger?.warn?.(`[dsh-session-progress] Failed to register systemPrompt section: ${e?.message || e}`);
     }
   });
 
-  // 2. HTTP Endpoint: Read progress content and computed percentage
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/task-progress/content',
-    handler: async (req, res) => {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Handler for reading content
+  const handleContent = async (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-      if (req.method === 'OPTIONS') {
-        res.statusCode = 204;
-        return res.end();
-      }
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      return res.end();
+    }
 
-      let reqUrl;
-      try {
-        reqUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
-      } catch (e) {
-        reqUrl = { searchParams: new URLSearchParams() };
-      }
+    let reqUrl;
+    try {
+      reqUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+    } catch (e) {
+      reqUrl = { searchParams: new URLSearchParams() };
+    }
 
-      const qSessionId = reqUrl.searchParams.get('sessionId') || 'default';
-      const qFilePath = reqUrl.searchParams.get('filePath');
+    const qSessionId = reqUrl.searchParams.get('sessionId') || 'default';
+    const qFilePath = reqUrl.searchParams.get('filePath');
 
-      let targetPath = qFilePath;
-      let record = sessionProgressMap.get(qSessionId);
+    let targetPath = qFilePath;
+    let record = sessionProgressMap.get(qSessionId);
 
-      if (!targetPath) {
-        if (!record) {
-          record = getOrCreateSessionProgress(qSessionId);
-        }
-        targetPath = record?.filePath;
-      }
-
-      if (!targetPath || !fs.existsSync(targetPath)) {
-        // Fallback: Check if any progress file exists in os.tmpdir()
+    if (!targetPath) {
+      if (!record) {
         record = getOrCreateSessionProgress(qSessionId);
+      }
+      targetPath = record?.filePath;
+    }
+
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      record = getOrCreateSessionProgress(qSessionId);
+      targetPath = record?.filePath;
+    }
+
+    if (targetPath && fs.existsSync(targetPath)) {
+      try {
+        const content = fs.readFileSync(targetPath, 'utf-8');
+        const stat = fs.statSync(targetPath);
+        const parsed = parseProgress(content);
+
+        return res.end(JSON.stringify({
+          success: true,
+          found: true,
+          sessionId: qSessionId,
+          filePath: targetPath,
+          fileName: path.basename(targetPath),
+          percent: parsed.percent,
+          explicitPercent: parsed.explicitPercent,
+          checklistPercent: parsed.checklistPercent,
+          tasksTotal: parsed.tasksTotal,
+          tasksDone: parsed.tasksDone,
+          tasksInProgress: parsed.tasksInProgress,
+          tasksPending: parsed.tasksPending,
+          content,
+          lastModified: stat.mtimeMs
+        }));
+      } catch (err) {
+        return res.end(JSON.stringify({
+          success: false,
+          found: false,
+          error: `Failed to read progress file: ${err?.message || err}`,
+          sessionId: qSessionId,
+          filePath: targetPath,
+          percent: 0,
+          content: ''
+        }));
+      }
+    }
+
+    return res.end(JSON.stringify({
+      success: false,
+      found: false,
+      sessionId: qSessionId,
+      filePath: null,
+      percent: 0,
+      tasksTotal: 0,
+      tasksDone: 0,
+      tasksPending: 0,
+      content: '',
+      message: 'No progress file found for session'
+    }));
+  };
+
+  // Handler for opening file in OS editor
+  const handleOpen = async (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      return res.end();
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let params = {};
+      try {
+        params = JSON.parse(body || '{}');
+      } catch (e) {}
+
+      const qSessionId = params.sessionId;
+      let targetPath = params.filePath;
+
+      if (!targetPath && qSessionId) {
+        const record = sessionProgressMap.get(qSessionId);
         targetPath = record?.filePath;
       }
 
       if (targetPath && fs.existsSync(targetPath)) {
-        try {
-          const content = fs.readFileSync(targetPath, 'utf-8');
-          const stat = fs.statSync(targetPath);
-          const parsed = parseProgress(content);
-
-          return res.end(JSON.stringify({
-            success: true,
-            found: true,
-            sessionId: qSessionId,
-            filePath: targetPath,
-            fileName: path.basename(targetPath),
-            percent: parsed.percent,
-            explicitPercent: parsed.explicitPercent,
-            checklistPercent: parsed.checklistPercent,
-            tasksTotal: parsed.tasksTotal,
-            tasksDone: parsed.tasksDone,
-            tasksInProgress: parsed.tasksInProgress,
-            tasksPending: parsed.tasksPending,
-            content,
-            lastModified: stat.mtimeMs
-          }));
-        } catch (err) {
-          return res.end(JSON.stringify({
-            success: false,
-            found: false,
-            error: `Failed to read progress file: ${err?.message || err}`,
-            sessionId: qSessionId,
-            filePath: targetPath,
-            percent: 0,
-            content: ''
-          }));
-        }
+        openInDefaultApp(targetPath);
+        return res.end(JSON.stringify({
+          success: true,
+          filePath: targetPath
+        }));
       }
 
       return res.end(JSON.stringify({
         success: false,
-        found: false,
-        sessionId: qSessionId,
-        filePath: null,
-        percent: 0,
-        tasksTotal: 0,
-        tasksDone: 0,
-        tasksPending: 0,
-        content: '',
-        message: 'No progress file found for session'
+        error: 'File path not found or does not exist on disk'
       }));
-    }
-  });
+    });
+  };
 
-  // 3. HTTP Endpoint: Open file in default OS editor
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/task-progress/open',
-    handler: async (req, res) => {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // 2. HTTP Endpoints (Primary & Compatibility aliases)
+  ctx.webServer.register({ kind: 'exact', path: '/api/session-progress/content', handler: handleContent });
+  ctx.webServer.register({ kind: 'exact', path: '/api/session-progress/open', handler: handleOpen });
 
-      if (req.method === 'OPTIONS') {
-        res.statusCode = 204;
-        return res.end();
-      }
+  // Backward compatibility alias routes
+  ctx.webServer.register({ kind: 'exact', path: '/api/task-progress/content', handler: handleContent });
+  ctx.webServer.register({ kind: 'exact', path: '/api/task-progress/open', handler: handleOpen });
 
-      let body = '';
-      req.on('data', chunk => { body += chunk; });
-      req.on('end', () => {
-        let params = {};
-        try {
-          params = JSON.parse(body || '{}');
-        } catch (e) {}
-
-        const qSessionId = params.sessionId;
-        let targetPath = params.filePath;
-
-        if (!targetPath && qSessionId) {
-          const record = sessionProgressMap.get(qSessionId);
-          targetPath = record?.filePath;
-        }
-
-        if (targetPath && fs.existsSync(targetPath)) {
-          openInDefaultApp(targetPath);
-          return res.end(JSON.stringify({
-            success: true,
-            filePath: targetPath
-          }));
-        }
-
-        return res.end(JSON.stringify({
-          success: false,
-          error: 'File path not found or does not exist on disk'
-        }));
-      });
-    }
-  });
-
-  ctx.logger?.info?.('dsh-task-progress endpoints /api/task-progress/content and /api/task-progress/open ready');
+  ctx.logger?.info?.('dsh-session-progress endpoints /api/session-progress/content and /api/session-progress/open ready');
 }

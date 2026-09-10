@@ -1,21 +1,21 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-task-progress',
+  id: 'dsh-session-progress',
   factory: (require) => {
     const module = { exports: {} };
     const exports = module.exports;
 
-    console.log('[dsh-task-progress] client factory loaded!');
+    console.log('[dsh-session-progress] client factory loaded!');
 
     const React = require('react');
 
-    const STYLE_ID = 'dsh-task-progress-style';
+    const STYLE_ID = 'dsh-session-progress-style';
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return;
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
         /* --- Header Action Button --- */
-        .dsh-task-progress-button {
+        .dsh-session-progress-button {
           border: 0.5px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.15));
           min-width: 110px;
           height: 32px;
@@ -37,12 +37,12 @@ window.__ModuleLoader__.load({
           margin-right: 6px;
         }
 
-        .dsh-task-progress-button:hover {
+        .dsh-session-progress-button:hover {
           background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
           border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.3));
         }
 
-        .dsh-task-progress-button:active {
+        .dsh-session-progress-button:active {
           transform: scale(0.97);
         }
 
@@ -460,12 +460,12 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Fetch task progress content from backend
+     * Fetch session progress content from backend
      */
     async function fetchProgress(sessionId) {
       if (!sessionId) sessionId = resolveCurrentSessionId();
       try {
-        const res = await fetch(`/api/task-progress/content?sessionId=${encodeURIComponent(sessionId)}`);
+        const res = await fetch(`/api/session-progress/content?sessionId=${encodeURIComponent(sessionId)}`);
         if (res.ok) {
           const data = await res.json();
           latestData = data;
@@ -476,7 +476,7 @@ window.__ModuleLoader__.load({
           return data;
         }
       } catch (err) {
-        console.warn('[dsh-task-progress] Failed to fetch progress:', err);
+        console.warn('[dsh-session-progress] Failed to fetch progress:', err);
       }
       return null;
     }
@@ -487,7 +487,7 @@ window.__ModuleLoader__.load({
     async function openProgressFile() {
       if (!latestData || !latestData.filePath) return;
       try {
-        await fetch('/api/task-progress/open', {
+        await fetch('/api/session-progress/open', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -496,7 +496,7 @@ window.__ModuleLoader__.load({
           })
         });
       } catch (e) {
-        console.error('[dsh-task-progress] Failed to open file:', e);
+        console.error('[dsh-session-progress] Failed to open file:', e);
       }
     }
 
@@ -522,7 +522,7 @@ window.__ModuleLoader__.load({
         return `
           <div class="dsh-drawer-empty">
             <div class="dsh-drawer-empty-icon">📋</div>
-            <div>No task progress has been reported yet.</div>
+            <div>No session progress has been reported yet.</div>
             <div style="font-size: 11px; margin-top: 6px;">The AI Agent will automatically populate this file as it progresses.</div>
           </div>
         `;
@@ -687,7 +687,7 @@ window.__ModuleLoader__.load({
           <div class="dsh-drawer-title-row">
             <div class="dsh-drawer-title-wrap">
               <span style="font-size: 16px;">📋</span>
-              <h3 class="dsh-drawer-title">Task Progress</h3>
+              <h3 class="dsh-drawer-title">Session Progress</h3>
             </div>
             <div class="dsh-drawer-actions">
               <button type="button" class="dsh-drawer-btn" id="dsh-open-file-btn" title="Open in default editor">
@@ -717,7 +717,7 @@ window.__ModuleLoader__.load({
         <div class="dsh-drawer-body" id="dsh-drawer-body-content">
           <div class="dsh-drawer-empty">
             <div class="dsh-drawer-empty-icon">⏳</div>
-            <div>Loading session task progress...</div>
+            <div>Loading session progress...</div>
           </div>
         </div>
         <div class="dsh-drawer-footer">
@@ -833,7 +833,7 @@ window.__ModuleLoader__.load({
     }
 
     function updateHeaderButtonUI(pct) {
-      const btns = document.querySelectorAll('.dsh-task-progress-button');
+      const btns = document.querySelectorAll('.dsh-session-progress-button, .dsh-task-progress-button');
       btns.forEach((btn) => {
         const pill = btn.querySelector('.dsh-progress-pill');
         if (pill) {
@@ -854,7 +854,7 @@ window.__ModuleLoader__.load({
     }
 
     // --- React Header Button Component for Slot ---
-    function TaskProgressHeaderAction(props) {
+    function SessionProgressHeaderAction(props) {
       const sessionId = props.sessionId || resolveCurrentSessionId();
       const [percent, setPercent] = React.useState(latestPercent);
 
@@ -872,8 +872,8 @@ window.__ModuleLoader__.load({
         'button',
         {
           type: 'button',
-          className: 'dsh-task-progress-button',
-          title: 'View live session task progress',
+          className: 'dsh-session-progress-button',
+          title: 'View live session progress',
           onClick: () => toggleDrawer(sessionId)
         },
         React.createElement('span', { className: 'dsh-progress-icon' }, '📋'),
@@ -887,12 +887,10 @@ window.__ModuleLoader__.load({
     }
 
     // --- Fallback DOM Injector ---
-    // If the slot fails to render or isn't picked up, inject right before the Session log button
     function ensureFallbackButton() {
-      const existing = document.querySelector('.dsh-task-progress-button');
+      const existing = document.querySelector('.dsh-session-progress-button, .dsh-task-progress-button');
       if (existing) return;
 
-      // Find the Session log button
       const sessionLogBtn = document.querySelector('button.jGdBjq_sessionLogButton, button[class*="sessionLogButton"], button[aria-label*="Session log"], button:has(svg)');
       let targetHeader = null;
       let refNode = null;
@@ -901,7 +899,6 @@ window.__ModuleLoader__.load({
         targetHeader = sessionLogBtn.parentElement;
         refNode = sessionLogBtn;
       } else {
-        // Look for the top right utilities header container
         const headerContainers = document.querySelectorAll('header, [class*="header"], [class*="utilities"]');
         for (const c of headerContainers) {
           if (c.textContent.includes('Session log') || c.querySelector('button')) {
@@ -915,8 +912,8 @@ window.__ModuleLoader__.load({
         ensureStyles();
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'dsh-task-progress-button';
-        btn.title = 'View live session task progress';
+        btn.className = 'dsh-session-progress-button';
+        btn.title = 'View live session progress';
         btn.innerHTML = `
           <span class="dsh-progress-icon">📋</span>
           <span class="dsh-progress-text">Progress</span>
@@ -931,14 +928,14 @@ window.__ModuleLoader__.load({
         } else {
           targetHeader.appendChild(btn);
         }
-        console.log('[dsh-task-progress] Injected fallback header button into DOM');
+        console.log('[dsh-session-progress] Injected fallback header button into DOM');
       }
     }
 
     // Export module apply & inject
     exports.inject = ['slots'];
     exports.apply = function(ctx) {
-      console.log('[dsh-task-progress] client plugin applying slots and observers...');
+      console.log('[dsh-session-progress] client plugin applying slots and observers...');
       ensureStyles();
       ensureDrawerElements();
 
@@ -948,16 +945,16 @@ window.__ModuleLoader__.load({
           return ctx.slots.register(
             {
               name: 'conversation.session.header.utilities',
-              id: 'dsh-task-progress-button',
+              id: 'dsh-session-progress-button',
               priority: 0,
               order: -10 // Render before session-log-download (order 0)
             },
-            TaskProgressHeaderAction
+            SessionProgressHeaderAction
           );
         });
-        console.log('[dsh-task-progress] registered into slot conversation.session.header.utilities');
+        console.log('[dsh-session-progress] registered into slot conversation.session.header.utilities');
       } catch (err) {
-        console.warn('[dsh-task-progress] Failed to register slot, relying on DOM observer:', err);
+        console.warn('[dsh-session-progress] Failed to register slot, relying on DOM observer:', err);
       }
 
       // Initial progress fetch

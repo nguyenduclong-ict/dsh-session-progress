@@ -1,18 +1,18 @@
 {
-  "name": "dsh-task-progress",
+  "name": "dsh-session-progress",
   "version": "0.1.0",
-  "description": "Session task progress tracker with System Prompt injection and Slide-over Drawer for DeepSeek Harness",
+  "description": "Session progress tracker with System Prompt injection and Slide-over Drawer for DeepSeek Harness",
   "type": "module",
   "main": "./index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nguyenduclong-ict/dsh-task-progress.git"
+    "url": "https://github.com/nguyenduclong-ict/dsh-session-progress.git"
   },
   "keywords": [
     "dsh",
     "deepseek-harness",
     "dsh-plugin",
-    "task",
+    "session",
     "progress",
     "markdown",
     "drawer",

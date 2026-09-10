@@ -1,8 +1,8 @@
-# dsh-task-progress
+# dsh-session-progress
 
-> **Session Task Progress Tracker for DeepSeek Harness (DSH)**
+> **Session Progress Tracker for DeepSeek Harness (DSH)**
 
-`dsh-task-progress` is a DSH plugin that enables real-time task progress tracking for sessions. It instructs the AI Agent to maintain a parallel Markdown progress file in the system's temporary directory (`os.tmpdir()`), automatically calculates completion percentages (`%`), mounts a live progress button onto the Top Header, and renders an interactive **Slide-over Side Drawer** for instant status inspection.
+`dsh-session-progress` is a DSH plugin that enables real-time progress tracking for sessions. It instructs the AI Agent to maintain a parallel Markdown progress file in the system's temporary directory (`os.tmpdir()`), automatically calculates completion percentages (`%`), mounts a live progress button onto the Top Header, and renders an interactive **Slide-over Side Drawer** for instant status inspection.
 
 ---
 
@@ -18,7 +18,7 @@
   - Includes automated DOM observer fallback.
 - **Slide-over Side Drawer (Right Panel)**:
   - 440px wide sliding drawer smoothly transitioning from the right edge.
-  - Graphical gradient progress bar (`3b82f6` -> `10b981`).
+  - Graphical gradient progress bar (`#3b82f6` -> `#10b981`).
   - Lightweight built-in Markdown renderer with custom styling for headers, blockquotes, code snippets, and checklists.
   - Quick action toolbar:
     - **Open File**: Opens the raw Markdown progress file directly in the OS default editor (VS Code, Notepad, etc.).
@@ -35,8 +35,8 @@
 
 ```yaml
 - insert:
-    - id: dsh-task-progress
-      name: dsh-task-progress
+    - id: dsh-session-progress
+      name: dsh-session-progress
 ```
 
 ### 2. Client Injection
@@ -64,7 +64,7 @@ In `package.json`:
 
 ## API Endpoints
 
-### `GET /api/task-progress/content?sessionId=<id>`
+### `GET /api/session-progress/content?sessionId=<id>`
 Returns JSON with the parsed progress and raw markdown content:
 ```json
 {
@@ -78,12 +78,12 @@ Returns JSON with the parsed progress and raw markdown content:
   "tasksDone": 6,
   "tasksInProgress": 1,
   "tasksPending": 3,
-  "content": "# Session Task Progress\n**Progress**: 65%\n...",
+  "content": "# Session Progress\n**Progress**: 65%\n...",
   "lastModified": 1726000000000
 }
 ```
 
-### `POST /api/task-progress/open`
+### `POST /api/session-progress/open`
 Opens the progress file on the host OS:
 ```json
 {
@@ -91,6 +91,8 @@ Opens the progress file on the host OS:
   "filePath": "C:\\Users\\...\\dsh-progress-...md"
 }
 ```
+
+*(Note: `/api/task-progress/*` endpoints are also supported as backward-compatible aliases)*
 
 ---
 
