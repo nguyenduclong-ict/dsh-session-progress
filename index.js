@@ -68,14 +68,18 @@ function getOrCreateSessionProgress(sessionId) {
     }
   } catch (e) {}
 
-  // Otherwise create a fresh file
+  // Otherwise create a fresh file with YAML frontmatter template
   const fileUuid = randomUUID();
   const fileName = `dsh-progress-${safeId}-${fileUuid}.md`;
   const filePath = path.join(tmpDir, fileName);
 
-  const initialContent = `# Session Progress
-**Progress**: 0%
+  const initialContent = `---
+progress: 0%
+status: starting
+current_activity: "Session started. Waiting for task initialization."
+---
 
+# Session Progress
 ## Overview
 Session started. Waiting for task initialization.
 
@@ -105,36 +109,81 @@ Idle / Preparing task execution.
 }
 
 /**
- * Parse Markdown content to compute completion percentage and checklist summary
+ * Parse Markdown content with YAML Frontmatter support to compute completion percentage and checklist summary
  */
 export function parseProgress(content) {
   if (!content || typeof content !== 'string') {
     return {
       percent: 0,
+      status: 'starting',
+      currentActivity: null,
       explicitPercent: null,
       checklistPercent: null,
       tasksTotal: 0,
       tasksDone: 0,
       tasksInProgress: 0,
-      tasksPending: 0
+      tasksPending: 0,
+      frontmatter: null
     };
   }
 
-  // 1. Explicit declaration extraction:
-  // e.g. "**Progress**: 65%", "Progress: 65%", "Tiến độ: 65%", "> **Progress**: 65%"
   let explicitPercent = null;
-  const explicitMatch = content.match(/(?:\*{1,2}|_)?(?:progress|tiến\s*độ)(?:\*{1,2}|_)?\s*[:=]\s*(\d{1,3})\s*%/i);
-  if (explicitMatch && explicitMatch[1]) {
-    const val = parseInt(explicitMatch[1], 10);
-    if (!isNaN(val) && val >= 0 && val <= 100) {
-      explicitPercent = val;
+  let status = null;
+  let currentActivity = null;
+  let frontmatter = null;
+
+  // 1. YAML Frontmatter Extraction (Highest Priority)
+  // Format:
+  // ---
+  // progress: 65%
+  // status: in_progress
+  // current_activity: "..."
+  // ---
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (fmMatch && fmMatch[1]) {
+    frontmatter = {};
+    const fmLines = fmMatch[1].split('\n');
+    for (const rawLine of fmLines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const colonIdx = line.indexOf(':');
+      if (colonIdx !== -1) {
+        const key = line.slice(0, colonIdx).trim().toLowerCase();
+        let val = line.slice(colonIdx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        frontmatter[key] = val;
+
+        if (key === 'progress' || key === 'percentage' || key === 'percent' || key === 'tien_do') {
+          const numMatch = val.match(/(\d{1,3})/);
+          if (numMatch) {
+            const num = parseInt(numMatch[1], 10);
+            if (!isNaN(num) && num >= 0 && num <= 100) {
+              explicitPercent = num;
+            }
+          }
+        } else if (key === 'status') {
+          status = val;
+        } else if (key === 'current_activity' || key === 'activity' || key === 'currentactivity') {
+          currentActivity = val;
+        }
+      }
     }
   }
 
-  // 2. Checklist parsing:
-  // - [x] Done
-  // - [/] or [-] In progress
-  // - [ ] Pending
+  // 2. Inline Explicit Declaration Extraction (Secondary)
+  if (explicitPercent === null) {
+    const explicitMatch = content.match(/(?:\*{1,2}|_)?(?:progress|tiến\s*độ)(?:\*{1,2}|_)?\s*[:=]\s*(\d{1,3})\s*%/i);
+    if (explicitMatch && explicitMatch[1]) {
+      const val = parseInt(explicitMatch[1], 10);
+      if (!isNaN(val) && val >= 0 && val <= 100) {
+        explicitPercent = val;
+      }
+    }
+  }
+
+  // 3. Checklist Parsing
   const doneMatches = content.match(/^[\s*>-]*\[[xX]\]\s*(.+)$/gm) || [];
   const inProgressMatches = content.match(/^[\s*>-]*\[[\-\/~]\]\s*(.+)$/gm) || [];
   const pendingMatches = content.match(/^[\s*>-]*\[\s\]\s*(.+)$/gm) || [];
@@ -149,29 +198,37 @@ export function parseProgress(content) {
     checklistPercent = Math.min(100, Math.max(0, Math.round(((tasksDone + (tasksInProgress * 0.5)) / tasksTotal) * 100)));
   }
 
-  // 3. Overall resolution
+  // 4. Overall Resolution
   let percent = 0;
   if (explicitPercent !== null) {
     percent = explicitPercent;
   } else if (checklistPercent !== null) {
     percent = checklistPercent;
   } else if (content.trim().length > 50) {
-    // If no explicit % and no checklist, check for completion keywords
-    if (/(?:all\s+tasks\s+completed|all\s+goals\s+achieved|hoàn\s+thành\s+toàn\s+bộ)/i.test(content)) {
+    if (/(?:all\s+tasks\s+completed|all\s+goals\s+achieved|hoàn\s+thành\s+toàn\s+bộ)/i.test(content) || status === 'completed') {
       percent = 100;
     } else {
       percent = 0;
     }
   }
 
+  if (percent === 100 && !status) {
+    status = 'completed';
+  } else if (!status) {
+    status = percent > 0 ? 'in_progress' : 'starting';
+  }
+
   return {
     percent,
+    status,
+    currentActivity,
     explicitPercent,
     checklistPercent,
     tasksTotal,
     tasksDone,
     tasksInProgress,
-    tasksPending
+    tasksPending,
+    frontmatter
   };
 }
 
@@ -218,37 +275,80 @@ export function apply(ctx) {
 You MUST maintain and continuously update a Markdown progress file for this session at:
 \`${record.filePath}\`
 
-## RULES & REQUIREMENTS:
-1. Whenever you begin a new task, complete a subtask, change execution phases, or observe significant milestones, update this file using write or edit tools.
-2. At the top of the file, specify the overall completion percentage using this exact syntax:
-   **Progress**: <0-100>%
-3. Maintain a structured checklist with standard Markdown checkboxes:
-   - [x] Completed task description
-   - [/] In-progress task description
-   - [ ] Pending task description
-4. Organize the document with the following clean sections:
-   # Session Progress: <Goal / Task Title>
-   **Progress**: <0-100>%
+## RULES & SPECIFICATIONS:
+1. YAML FRONTMATTER (REQUIRED):
+   Always keep YAML frontmatter at the very top of the file enclosed by \`---\`.
+   Specify:
+   - \`progress\`: integer or percentage string (e.g. \`65%\`)
+   - \`status\`: \`starting\` | \`in_progress\` | \`blocked\` | \`completed\`
+   - \`current_activity\`: short one-line description of the active step
+   Keep the YAML frontmatter keys strictly in English.
 
-   ## Overview
-   <Brief summary of session objective and current status>
+2. LANGUAGE ALIGNMENT:
+   Match the primary language of the conversation!
+   - If the user communicates in Vietnamese, write all section headings (Tổng quan, Checklist, Hoạt động hiện tại, Các bước tiếp theo, Ghi chú quan trọng), task descriptions, and narrative text in Vietnamese.
+   - If the user communicates in English, write them in English.
 
-   ## Checklist
-   - [x] Completed milestone 1
-   - [/] Current active subtask
-   - [ ] Remaining subtask 1
-   - [ ] Remaining subtask 2
+3. STRUCTURED CHECKLIST:
+   Maintain milestones and subtasks using standard Markdown checkboxes:
+   - \`- [x]\` Completed milestone
+   - \`- [/]\` Current in-progress milestone
+   - \`- [ ]\` Pending milestone
 
-   ## Current Activity
-   <Details of the current action being executed>
+4. REAL-TIME UPDATES:
+   Update this file whenever you start a new task, complete a subtask, change phases, or obtain important results using your file editing/writing tools.
 
-   ## Next Steps
-   <Immediate planned actions once the current activity finishes>
+## TEMPLATE (ENGLISH):
+---
+progress: 65%
+status: in_progress
+current_activity: "Running test suites"
+---
 
-   ## Key Findings / Notes
-   <Important insights, outputs, decisions, or blocker alerts>
+# Session Progress: <Goal Title>
 
-Always keep this file concise, clear, and up-to-date so the user can follow live progress in real-time.
+## Overview
+<Brief summary of session objective and current status>
+
+## Checklist
+- [x] Step 1 completed
+- [/] Step 2 currently executing
+- [ ] Step 3 pending
+
+## Current Activity
+<Details of what is currently executing>
+
+## Next Steps
+<Planned immediate actions>
+
+## Key Findings / Notes
+<Important takeaways, metrics, or blocker alerts>
+
+## TEMPLATE (VIETNAMESE):
+---
+progress: 65%
+status: in_progress
+current_activity: "Đang chạy bộ kiểm thử"
+---
+
+# Tiến độ phiên làm việc: <Tiêu đề mục tiêu>
+
+## Tổng quan
+<Tóm tắt ngắn gọn mục tiêu phiên làm việc và trạng thái hiện tại>
+
+## Checklist
+- [x] Bước 1 đã hoàn thành
+- [/] Bước 2 đang xử lý
+- [ ] Bước 3 đang chờ
+
+## Hoạt động hiện tại
+<Chi tiết công việc đang thực thi ngay lúc này>
+
+## Các bước tiếp theo
+<Các công việc dự kiến tiếp theo>
+
+## Ghi chú quan trọng
+<Các phát hiện, kết quả hoặc cảnh báo quan trọng>
 `;
         }
       });
@@ -308,12 +408,15 @@ Always keep this file concise, clear, and up-to-date so the user can follow live
           filePath: targetPath,
           fileName: path.basename(targetPath),
           percent: parsed.percent,
+          status: parsed.status,
+          currentActivity: parsed.currentActivity,
           explicitPercent: parsed.explicitPercent,
           checklistPercent: parsed.checklistPercent,
           tasksTotal: parsed.tasksTotal,
           tasksDone: parsed.tasksDone,
           tasksInProgress: parsed.tasksInProgress,
           tasksPending: parsed.tasksPending,
+          frontmatter: parsed.frontmatter,
           content,
           lastModified: stat.mtimeMs
         }));

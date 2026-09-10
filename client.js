@@ -146,6 +146,31 @@ window.__ModuleLoader__.load({
           margin: 0;
         }
 
+        .dsh-drawer-status-badge {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 2px 7px;
+          border-radius: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          background: rgba(59, 130, 246, 0.15);
+          color: #60a5fa;
+          border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .dsh-drawer-status-badge.completed {
+          background: rgba(34, 197, 94, 0.15);
+          color: #4ade80;
+          border-color: rgba(34, 197, 94, 0.3);
+        }
+
+        .dsh-drawer-status-badge.blocked,
+        .dsh-drawer-status-badge.paused {
+          background: rgba(234, 179, 8, 0.15);
+          color: #facc15;
+          border-color: rgba(234, 179, 8, 0.3);
+        }
+
         .dsh-drawer-actions {
           display: flex;
           align-items: center;
@@ -226,6 +251,29 @@ window.__ModuleLoader__.load({
 
         .dsh-progress-fill.done {
           background: #22c55e;
+        }
+
+        .dsh-drawer-activity-row {
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px dashed rgba(255, 255, 255, 0.1);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          color: #93c5fd;
+        }
+
+        .dsh-drawer-activity-icon {
+          font-size: 12px;
+          color: #fbbf24;
+          flex-shrink: 0;
+        }
+
+        .dsh-drawer-activity-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         /* Drawer Body / Content */
@@ -515,7 +563,7 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Parse lightweight Markdown into HTML
+     * Parse lightweight Markdown into HTML (stripping YAML frontmatter from body)
      */
     function renderMarkdownToHtml(markdown) {
       if (!markdown || !markdown.trim()) {
@@ -528,7 +576,14 @@ window.__ModuleLoader__.load({
         `;
       }
 
-      const lines = markdown.split('\n');
+      // Strip YAML frontmatter from visible body text
+      let bodyText = markdown;
+      const fmMatch = markdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+      if (fmMatch) {
+        bodyText = markdown.slice(fmMatch[0].length);
+      }
+
+      const lines = bodyText.split('\n');
       let html = '';
       let inList = false;
       let inCodeBlock = false;
@@ -688,6 +743,7 @@ window.__ModuleLoader__.load({
             <div class="dsh-drawer-title-wrap">
               <span style="font-size: 16px;">📋</span>
               <h3 class="dsh-drawer-title">Session Progress</h3>
+              <span class="dsh-drawer-status-badge in_progress" id="dsh-drawer-status-badge">IN PROGRESS</span>
             </div>
             <div class="dsh-drawer-actions">
               <button type="button" class="dsh-drawer-btn" id="dsh-open-file-btn" title="Open in default editor">
@@ -711,6 +767,10 @@ window.__ModuleLoader__.load({
             </div>
             <div class="dsh-progress-track">
               <div class="dsh-progress-fill" id="dsh-drawer-progress-fill"></div>
+            </div>
+            <div class="dsh-drawer-activity-row" id="dsh-drawer-activity-row" style="display:none;">
+              <span class="dsh-drawer-activity-icon">⚡</span>
+              <span class="dsh-drawer-activity-text" id="dsh-drawer-activity-text"></span>
             </div>
           </div>
         </div>
@@ -794,6 +854,15 @@ window.__ModuleLoader__.load({
       const bodyEl = drawerPanel.querySelector('#dsh-drawer-body-content');
       const pathEl = drawerPanel.querySelector('#dsh-drawer-file-path');
       const updatedEl = drawerPanel.querySelector('#dsh-drawer-last-updated');
+      const statusBadge = drawerPanel.querySelector('#dsh-drawer-status-badge');
+      const actRow = drawerPanel.querySelector('#dsh-drawer-activity-row');
+      const actText = drawerPanel.querySelector('#dsh-drawer-activity-text');
+
+      if (statusBadge) {
+        const st = (data?.status || (pct === 100 ? 'completed' : 'in_progress')).toLowerCase();
+        statusBadge.className = `dsh-drawer-status-badge ${st}`;
+        statusBadge.textContent = st.replace(/_/g, ' ');
+      }
 
       if (pctTextEl) {
         pctTextEl.textContent = `${pct}% Completed`;
@@ -815,6 +884,15 @@ window.__ModuleLoader__.load({
         fillEl.style.width = `${pct}%`;
         if (pct === 100) fillEl.classList.add('done');
         else fillEl.classList.remove('done');
+      }
+
+      if (actRow && actText) {
+        if (data?.currentActivity) {
+          actText.textContent = data.currentActivity;
+          actRow.style.display = 'flex';
+        } else {
+          actRow.style.display = 'none';
+        }
       }
 
       if (bodyEl) {
