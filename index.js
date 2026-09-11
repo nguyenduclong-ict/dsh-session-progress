@@ -134,60 +134,66 @@ export function findLatestSessionProgress() {
 }
 
 /**
+ * Locate an existing progress record for a sessionId WITHOUT allocating one.
+ * Read-only callers (the read tool) must never reserve a new path as a side effect.
+ */
+function findExistingSessionProgress(sessionId) {
+  if (!sessionId) return null;
+  const sId = String(sessionId);
+
+  const cached = sessionProgressMap.get(sId);
+  if (cached?.filePath && fs.existsSync(cached.filePath)) {
+    return cached;
+  }
+
+  // Check if a progress file already exists in os.tmpdir() for this session
+  const safeId = sanitizeKey(sId);
+  const tmpDir = os.tmpdir();
+  const prefix = `dsh-progress-${safeId}-`;
+  try {
+    const matched = fs.readdirSync(tmpDir).filter((f) => f.startsWith(prefix) && f.endsWith('.md'));
+    let newest = null;
+    let newestMtime = 0;
+    for (const f of matched) {
+      const full = path.join(tmpDir, f);
+      try {
+        const stat = fs.statSync(full);
+        if (stat.mtimeMs > newestMtime) {
+          newestMtime = stat.mtimeMs;
+          newest = full;
+        }
+      } catch (e) {}
+    }
+    if (newest) {
+      const record = {
+        sessionId: sId,
+        filePath: newest,
+        uuid: path.basename(newest).slice(prefix.length, -3),
+        createdAt: Date.now(),
+        lastUpdated: newestMtime
+      };
+      sessionProgressMap.set(sId, record);
+      return record;
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+/**
  * Locate or allocate a progress file for a given sessionId
  */
 function getOrCreateSessionProgress(sessionId) {
   if (!sessionId) sessionId = 'default';
   const sId = String(sessionId);
 
-  if (sessionProgressMap.has(sId)) {
-    const entry = sessionProgressMap.get(sId);
-    if (fs.existsSync(entry.filePath)) {
-      return entry;
-    }
-  }
-
-  // Check if a progress file already exists in os.tmpdir() for this session
-  const safeId = sanitizeKey(sId);
-  const tmpDir = os.tmpdir();
-  try {
-    const files = fs.readdirSync(tmpDir);
-    const prefix = `dsh-progress-${safeId}-`;
-    const matched = files.filter(f => f.startsWith(prefix) && f.endsWith('.md'));
-    if (matched.length > 0) {
-      // Find the most recently modified file
-      let newest = null;
-      let newestMtime = 0;
-      for (const f of matched) {
-        const full = path.join(tmpDir, f);
-        try {
-          const stat = fs.statSync(full);
-          if (stat.mtimeMs > newestMtime) {
-            newestMtime = stat.mtimeMs;
-            newest = full;
-          }
-        } catch (e) {}
-      }
-      if (newest) {
-        const fileUuid = newest.slice(prefix.length, -3);
-        const record = {
-          sessionId: sId,
-          filePath: newest,
-          uuid: fileUuid,
-          createdAt: Date.now(),
-          lastUpdated: newestMtime
-        };
-        sessionProgressMap.set(sId, record);
-        return record;
-      }
-    }
-  } catch (e) {}
-
+  const existing = findExistingSessionProgress(sId);
+  if (existing) return existing;
 
   // Allocate a designated file path (DO NOT create on disk until agent writes to it)
   const fileUuid = randomUUID();
-  const fileName = `dsh-progress-${safeId}-${fileUuid}.md`;
-  const filePath = path.join(tmpDir, fileName);
+  const fileName = `dsh-progress-${sanitizeKey(sId)}-${fileUuid}.md`;
+  const filePath = path.join(os.tmpdir(), fileName);
 
   const record = {
     sessionId: sId,
@@ -333,6 +339,14 @@ export function parseProgress(content) {
 // it always replaces the whole file, and it refuses to persist a document that already looks doubled.
 
 export const PROGRESS_WRITE_TOOL_NAME = 'session_progress_write';
+export const PROGRESS_READ_TOOL_NAME = 'session_progress_read';
+
+/**
+ * Whether the progress tools were successfully registered on the `tools` service.
+ * The injected prompt switches to a whole-file fallback (naming the path) only when they were not,
+ * so a session can never lose the ability to record progress.
+ */
+let progressToolsRegistered = false;
 
 /**
  * Inspect a candidate progress document for structural corruption.
@@ -429,7 +443,7 @@ function writeFileAtomically(filePath, content) {
  */
 export function renderProgressWriteResult(value) {
   const parts = [
-    `Session progress replaced in full (${value.bytes} bytes written to ${value.filePath}).`,
+    `Session progress replaced in full (${value.bytes} bytes written${value.fileName ? ` to ${value.fileName}` : ''}).`,
     `${value.percent}% · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}.`,
     `${value.tasksTotal} checklist item(s): ${value.tasksDone} done, ${value.tasksInProgress} in progress, ${value.tasksPending} pending.`
   ];
@@ -456,7 +470,8 @@ export function buildProgressWriteTool() {
     description:
       'Replace the ENTIRE session progress file with `content`. This tool always overwrites the whole document — there is no anchor, no partial edit, and no append, so it can never leave a stale or duplicated copy behind. ' +
       'Send the COMPLETE document on every call: YAML frontmatter (`progress`, `status`, `current_activity`) followed by the five canonical sections (Overview, Checklist, Current Activity, Next Steps, Key Findings / Notes), localized to the conversation language. ' +
-      'Use this tool for every progress update instead of anchored edits. When the user starts a different objective and the previous one is finished, send a brand-new document for the new task only.',
+      'Use this tool for every progress update — never a generic file tool, and never an anchored edit (the file path is deliberately not exposed). Call `session_progress_read` first when you need the current document. ' +
+      'When the user starts a different objective and the previous one is finished, send a brand-new document for the new task only.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -474,7 +489,7 @@ export function buildProgressWriteTool() {
         type: 'object',
         additionalProperties: false,
         required: [
-          'filePath',
+          'fileName',
           'bytes',
           'replaced',
           'repaired',
@@ -488,7 +503,7 @@ export function buildProgressWriteTool() {
           'warnings'
         ],
         properties: {
-          filePath: { type: 'string' },
+          fileName: { type: 'string' },
           bytes: { type: 'integer' },
           replaced: { type: 'boolean' },
           repaired: { type: 'boolean' },
@@ -556,7 +571,7 @@ export function buildProgressWriteTool() {
       }
 
       return {
-        filePath: record.filePath,
+        fileName: path.basename(record.filePath),
         bytes: Buffer.byteLength(content, 'utf-8'),
         replaced: previous.length > 0,
         repaired: previousWasCorrupted,
@@ -569,6 +584,133 @@ export function buildProgressWriteTool() {
         tasksPending: parsed.tasksPending,
         sections: lint.sections,
         warnings
+      };
+    }
+  };
+}
+
+/**
+ * Render the read-tool result: the file VERBATIM, plus an actionable trailer when the plugin has
+ * something the raw document cannot say by itself (corruption, tracking switched off).
+ * @param {object} value - the structured read result.
+ * @returns {string} the text the model receives.
+ */
+export function renderProgressReadResult(value) {
+  if (!value.exists) {
+    return 'No session progress file exists yet for this session. Create it with session_progress_write, sending the complete document (YAML frontmatter + the five canonical sections).';
+  }
+  const notes = [];
+  if (value.corrupted) {
+    notes.push(
+      'This file is CORRUPTED: it repeats a level-1 title or a section heading, which means two documents were concatenated. Keep the most recent, most complete document and immediately rewrite the file with session_progress_write.'
+    );
+  }
+  if (Array.isArray(value.warnings)) {
+    for (const warning of value.warnings) notes.push(warning);
+  }
+  const trailer = notes.length > 0 ? `\n\n---\n[plugin] ${notes.join(' ')}` : '';
+  return `${value.content}${trailer}`;
+}
+
+/**
+ * Build the `session_progress_read` tool definition: the ONLY supported way to see the file.
+ *
+ * The progress file's path is deliberately never exposed (neither in the prompt nor in any tool
+ * result), so the model cannot address it with a generic `read`/`write`/`edit` — an anchored edit
+ * whose anchor covered only the YAML frontmatter is what once produced duplicated documents.
+ *
+ * @returns {object} a registry-ready tool definition.
+ */
+export function buildProgressReadTool() {
+  return {
+    name: PROGRESS_READ_TOOL_NAME,
+    description:
+      'Read the COMPLETE current session progress file verbatim (YAML frontmatter plus the five canonical sections). This is the only supported way to see the document: its file path is intentionally not exposed anywhere, so never look for the file with generic file tools. ' +
+      'Call it before deciding whether a new user request continues the tracked objective or starts a new one, before rewriting the document, and whenever you need the recorded notes, tables, or metrics. ' +
+      'Alongside the verbatim content it reports the parsed percentage, status, checklist counts, section names, and a `corrupted` flag (a repeated title or section heading means two documents were concatenated and the file must be rewritten with session_progress_write).',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {}
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['exists', 'bytes', 'percent', 'status', 'tasksTotal', 'tasksDone', 'tasksInProgress', 'tasksPending', 'sections', 'corrupted', 'warnings', 'content'],
+        properties: {
+          exists: { type: 'boolean' },
+          fileName: { type: 'string' },
+          bytes: { type: 'integer' },
+          percent: { type: 'integer' },
+          status: { type: 'string' },
+          currentActivity: { type: 'string' },
+          tasksTotal: { type: 'integer' },
+          tasksDone: { type: 'integer' },
+          tasksInProgress: { type: 'integer' },
+          tasksPending: { type: 'integer' },
+          sections: { type: 'array', items: { type: 'string' } },
+          corrupted: { type: 'boolean' },
+          warnings: { type: 'array', items: { type: 'string' } },
+          content: { type: 'string' }
+        }
+      },
+      render: (_args, value) => [{ type: 'text', text: renderProgressReadResult(value) }]
+    },
+    presentCall: () => ({
+      card: 'generic',
+      title: 'Read session progress',
+      kind: 'other',
+      rawInput: ''
+    }),
+    execute(_args, exec) {
+      const session = exec?.agent?.session;
+      const sessionId = session?.header?.id || session?.id || latestActiveSessionId;
+      if (!sessionId || sessionId === 'default') {
+        throw new Error(`${PROGRESS_READ_TOOL_NAME} requires an owning agent session.`);
+      }
+
+      const record = findExistingSessionProgress(sessionId);
+      if (!record?.filePath) {
+        return {
+          exists: false,
+          bytes: 0,
+          percent: 0,
+          status: 'starting',
+          tasksTotal: 0,
+          tasksDone: 0,
+          tasksInProgress: 0,
+          tasksPending: 0,
+          sections: [],
+          corrupted: false,
+          warnings: [],
+          content: ''
+        };
+      }
+
+      const content = fs.readFileSync(record.filePath, 'utf-8');
+      const parsed = parseProgress(content);
+      const lint = lintProgressDocument(content);
+      const warnings = [...lint.warnings];
+      if (isSessionDisabled(sessionId)) {
+        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this file.');
+      }
+
+      return {
+        exists: true,
+        fileName: path.basename(record.filePath),
+        bytes: Buffer.byteLength(content, 'utf-8'),
+        percent: parsed.percent,
+        status: parsed.status,
+        ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
+        tasksTotal: parsed.tasksTotal,
+        tasksDone: parsed.tasksDone,
+        tasksInProgress: parsed.tasksInProgress,
+        tasksPending: parsed.tasksPending,
+        sections: lint.sections,
+        corrupted: lint.errors.length > 0,
+        warnings,
+        content
       };
     }
   };
@@ -597,9 +739,47 @@ function openInDefaultApp(targetPath) {
   return true;
 }
 
+/**
+ * Prompt header used when the plugin's progress tools are registered: the file is reachable ONLY
+ * through those tools, and its path is deliberately withheld so the model cannot address the file
+ * with a generic `read`/`write`/`edit`.
+ */
+const PROGRESS_HEADER_TOOL_MODE = `You MUST maintain and continuously update a Markdown progress file for this session, and you may touch it ONLY through this plugin's tools:
+- \`session_progress_read\` — returns the current file VERBATIM (plus the parsed percentage, checklist counts, section names, and a \`corrupted\` flag).
+- \`session_progress_write\` — replaces the WHOLE document atomically.
+The file's path is intentionally not exposed: never look for it, and never use \`read\`, \`write\`, \`edit\`, or shell commands on it.`;
+
+/**
+ * Prompt header used when tool registration failed, so a session can never lose progress tracking.
+ */
+const PROGRESS_HEADER_FALLBACK_MODE = `You MUST maintain and continuously update a Markdown progress file for this session. (The plugin's progress tools are unavailable in this session, so use the whole-file \`write\` / \`read\` tools on the path below.)`;
+
+/**
+ * Rule 7 in tool mode: read and write exclusively through the plugin's tools.
+ */
+const PROGRESS_RULE7_TOOL_MODE = `7. THE PROGRESS FILE IS TOOL-ONLY (STRICT & CRITICAL):
+   - READ WITH THE TOOL: call \`session_progress_read\` whenever you need the current document — before deciding whether a request continues the tracked objective or starts a new one, before rewriting anything, and when you need the recorded notes or metrics. Never guess the current content.
+   - WRITE WITH THE TOOL: every create, refresh, or rewrite MUST go through \`session_progress_write\`, passing the COMPLETE document in \`content\`. It has no anchor: it atomically replaces the whole file, so a stale copy can never survive underneath.
+   - NEVER TOUCH THE FILE DIRECTLY: do NOT use \`read\`, \`write\`, \`edit\`, shell commands, or any other tool on this file, and do NOT go hunting for its path (it is withheld on purpose, e.g. under the OS temp directory). An anchored \`edit\` whose anchor covered only the YAML frontmatter once left a whole previous document appended below a new one — that is exactly what these tools exist to prevent.
+   - REPAIR A CORRUPTED FILE: when \`session_progress_read\` reports \`corrupted: true\` (a repeated title or section heading), keep only the most recent, most complete document and immediately call \`session_progress_write\` with that single clean document.
+   - DOUBLED DOCUMENTS ARE REFUSED: a write that repeats a level-1 title or any section heading is rejected with an explanation and nothing is written — correct the document and call again.
+   - VERIFY FROM THE RESULT: the write result reports the byte count, the parsed percentage, the checklist counts, and any warnings; rely on it instead of re-reading the file.`;
+
+/**
+ * Rule 7 in fallback mode: the tools are missing, so name the path and demand a whole-file write.
+ * @param {string} filePath - the progress file to name in the prompt.
+ * @returns {string} the rule text.
+ */
+function progressRule7FallbackMode(filePath) {
+  return `7. WRITE THE PROGRESS FILE DIRECTLY (FALLBACK — the plugin's progress tools are unavailable in this session):
+   - The file is \`${filePath}\`.
+   - Write it with the whole-file \`write\` tool (create or fully replace), sending the COMPLETE document: YAML frontmatter plus the five canonical sections.
+   - NEVER use an anchored \`edit\` on it, and never pass a whole new document as the replacement for a short anchor such as the YAML frontmatter: that replaces only the anchored fragment and leaves the previous document's title and body in place, producing a file with TWO concatenated documents.
+   - Read it with the \`read\` tool when you need the current content.`;
+}
+
 export function apply(ctx) {
   ctx.logger?.info?.('dsh-session-progress plugin loading...');
-
   // 1. Inject System Prompt instructions
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
@@ -617,11 +797,14 @@ export function apply(ctx) {
             return '';
           }
           const record = getOrCreateSessionProgress(sessionId);
+          const header = progressToolsRegistered
+            ? `${PROGRESS_HEADER_TOOL_MODE}`
+            : `${PROGRESS_HEADER_FALLBACK_MODE}\nIts path is:\n\`${record.filePath}\``;
+          const rule7 = progressToolsRegistered ? PROGRESS_RULE7_TOOL_MODE : progressRule7FallbackMode(record.filePath);
 
           return `
 # LIVE SESSION PROGRESS TRACKING
-You MUST maintain and continuously update a Markdown progress file for this session at:
-\`${record.filePath}\`
+${header}
 
 ## RULES & SPECIFICATIONS:
 1. YAML FRONTMATTER (REQUIRED):
@@ -644,7 +827,7 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - \`- [ ]\` Pending milestone
 
 4. ZERO-STEP MANDATE & REAL-TIME UPDATES (STRICT & CRITICAL):
-   - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be updating this progress file (through the \`session_progress_write\` tool — see rule 7).
+   - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be a progress-file action — a full write of the document, or a read first when you must check whether the request continues the tracked objective (see rule 7 for HOW the file must be read and written).
    - 100% RESET TRIGGER: If the current progress is 100% or marked as completed from a prior task, you MUST IMMEDIATELY reset \`progress: 0%\` (or \`5%\`), set \`status: in_progress\`, update \`current_activity\` to describe the new task, and refresh the checklist with the new plan (see rule 5 for the required full rewrite).
    - WHY THIS IS MANDATORY: The user is actively monitoring the live progress bar on the UI. Delaying the progress update while investigating code or running commands makes the system appear frozen, stalled, or stuck at 100%.
    - Keep this file continuously updated as subtasks complete or new steps emerge throughout the session.
@@ -673,13 +856,7 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - ALL findings, ablation results, comparison tables, metrics, and investigation notes MUST be placed under "## Key Findings / Notes" using H3 (###) or tables.
    - Always overwrite the file cleanly to reflect the latest state; do not let the document grow into an unorganized scratchpad.
 
-7. WRITE THROUGH THE \`session_progress_write\` TOOL (STRICT & CRITICAL):
-   - ALWAYS USE THE TOOL: every create, refresh, or rewrite of this file MUST go through the \`session_progress_write\` tool, passing the COMPLETE document in its \`content\` argument. That tool has no anchor — it atomically replaces the whole file, so a stale copy can never survive underneath.
-   - NEVER USE AN ANCHORED EDIT ON THIS FILE: do NOT call \`edit\` / str-replace on the progress file, and NEVER pass a whole new document as the replacement for a short anchor such as the YAML frontmatter. That replaces only the anchored fragment and leaves the previous document's title and body in place, leaving the file with TWO concatenated documents.
-   - FALLBACK: if \`session_progress_write\` is unavailable in this session, use the whole-file \`write\` tool (create or fully replace) with the complete document — still never an anchored edit.
-   - IF THE FILE IS ALREADY CORRUPTED: if the file holds more than one level-1 title or any section heading appears twice, it is corrupted. Keep only the most recent/complete document and immediately call \`session_progress_write\` with that single clean document.
-   - DOUBLED DOCUMENTS ARE REJECTED: a call that repeats a level-1 title or any section heading is refused with an explanation and nothing is written — correct the document and call again.
-   - VERIFY FROM THE RESULT: the tool answers with the byte count, the parsed percentage, the checklist counts, and any warnings. Rely on that result instead of re-reading the file.
+${rule7}
 
 ## TEMPLATE:
 ---
@@ -716,13 +893,18 @@ current_activity: "Running test suites"
     }
   });
 
-  // 2. Register the whole-file progress writer tool
+  // 2. Register the progress tools (the ONLY supported way to read/replace the file)
   ctx.inject(['tools'], (toolCtx) => {
     try {
+      toolCtx.tools.register(buildProgressReadTool());
       toolCtx.tools.register(buildProgressWriteTool());
-      ctx.logger?.info?.(`dsh-session-progress registered tool "${PROGRESS_WRITE_TOOL_NAME}"`);
+      progressToolsRegistered = true;
+      ctx.logger?.info?.(
+        `dsh-session-progress registered tools "${PROGRESS_READ_TOOL_NAME}" and "${PROGRESS_WRITE_TOOL_NAME}"`
+      );
     } catch (e) {
-      ctx.logger?.warn?.(`[dsh-session-progress] Failed to register tool "${PROGRESS_WRITE_TOOL_NAME}": ${e?.message || e}`);
+      progressToolsRegistered = false;
+      ctx.logger?.warn?.(`[dsh-session-progress] Failed to register progress tools: ${e?.message || e}`);
     }
   });
 
