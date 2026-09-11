@@ -14,32 +14,37 @@ window.__ModuleLoader__.load({
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
+        :root {
+          --dsh-drawer-top: 40px;
+        }
+
         /* --- Header Action Button --- */
         .dsh-session-progress-button {
-          border: 0.5px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.15));
-          min-width: 110px;
-          height: 32px;
+          border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.16));
+          min-width: 105px;
+          height: 30px;
           color: var(--dsw-alias-label-primary, #f4f4f5);
           font-family: var(--dsw-font-family, system-ui, sans-serif);
           cursor: pointer;
-          background: transparent;
-          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.04);
+          border-radius: 16px;
           justify-content: center;
           align-items: center;
           gap: 6px;
-          padding: 6px 12px;
-          font-size: 13px;
-          font-weight: 400;
-          line-height: 20px;
+          padding: 4px 11px;
+          font-size: 12px;
+          font-weight: 500;
+          line-height: 1;
           display: inline-flex;
           user-select: none;
           transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          margin-right: 6px;
+          margin-right: 8px;
+          flex-shrink: 0;
         }
 
         .dsh-session-progress-button:hover {
-          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
-          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.3));
+          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.1));
+          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.35));
         }
 
         .dsh-session-progress-button:active {
@@ -78,10 +83,11 @@ window.__ModuleLoader__.load({
         /* --- Slide-over Drawer & Backdrop --- */
         .dsh-drawer-backdrop {
           position: fixed;
-          top: 0;
+          top: var(--dsh-drawer-top, 40px);
           left: 0;
           right: 0;
           bottom: 0;
+          height: calc(100vh - var(--dsh-drawer-top, 40px));
           background: rgba(0, 0, 0, 0.45);
           backdrop-filter: blur(2px);
           z-index: 9998;
@@ -97,9 +103,10 @@ window.__ModuleLoader__.load({
 
         .dsh-drawer-panel {
           position: fixed;
-          top: 0;
+          top: var(--dsh-drawer-top, 40px);
           right: 0;
           bottom: 0;
+          height: calc(100vh - var(--dsh-drawer-top, 40px));
           width: 440px;
           max-width: calc(100vw - 40px);
           background: var(--dsw-alias-bg-floating, #18181b);
@@ -120,7 +127,7 @@ window.__ModuleLoader__.load({
 
         /* Drawer Header */
         .dsh-drawer-header {
-          padding: 16px 20px;
+          padding: 14px 18px;
           border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
           background: var(--dsw-alias-bg-floating, #18181b);
           flex-shrink: 0;
@@ -131,19 +138,22 @@ window.__ModuleLoader__.load({
           align-items: center;
           justify-content: space-between;
           margin-bottom: 12px;
+          gap: 8px;
         }
 
         .dsh-drawer-title-wrap {
           display: flex;
           align-items: center;
           gap: 8px;
+          min-width: 0;
         }
 
         .dsh-drawer-title {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 600;
           color: var(--dsw-alias-label-primary, #ffffff);
           margin: 0;
+          white-space: nowrap;
         }
 
         .dsh-drawer-status-badge {
@@ -156,6 +166,7 @@ window.__ModuleLoader__.load({
           background: rgba(59, 130, 246, 0.15);
           color: #60a5fa;
           border: 1px solid rgba(59, 130, 246, 0.3);
+          white-space: nowrap;
         }
 
         .dsh-drawer-status-badge.completed {
@@ -175,10 +186,11 @@ window.__ModuleLoader__.load({
           display: flex;
           align-items: center;
           gap: 6px;
+          flex-shrink: 0;
         }
 
         .dsh-drawer-btn {
-          background: transparent;
+          background: rgba(255, 255, 255, 0.04);
           border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.15));
           color: var(--dsw-alias-label-secondary, #a1a1aa);
           border-radius: 6px;
@@ -190,19 +202,32 @@ window.__ModuleLoader__.load({
           gap: 4px;
           transition: all 0.15s ease;
           user-select: none;
+          line-height: 1.2;
         }
 
         .dsh-drawer-btn:hover {
           color: var(--dsw-alias-label-primary, #ffffff);
           border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.3));
-          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.1));
+        }
+
+        .dsh-drawer-btn:active {
+          transform: scale(0.96);
         }
 
         .dsh-drawer-btn.close-btn {
-          padding: 4px 7px;
-          font-size: 14px;
+          padding: 4px 8px;
+          font-size: 13px;
           line-height: 1;
+          color: var(--dsw-alias-label-tertiary, #71717a);
         }
+
+        .dsh-drawer-btn.close-btn:hover {
+          color: #f87171;
+          border-color: rgba(248, 113, 113, 0.4);
+          background: rgba(248, 113, 113, 0.12);
+        }
+
 
         /* Progress Bar Section */
         .dsh-drawer-progress-box {
@@ -297,7 +322,7 @@ window.__ModuleLoader__.load({
 
         /* Markdown rendered elements */
         .dsh-md-h1 {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 700;
           margin: 4px 0 12px 0;
           color: #ffffff;
@@ -306,13 +331,25 @@ window.__ModuleLoader__.load({
         }
 
         .dsh-md-h2 {
-          font-size: 14px;
-          font-weight: 600;
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.6px;
           margin: 16px 0 8px 0;
           color: #93c5fd;
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 7px;
+        }
+
+        .dsh-md-h2::before {
+          content: '';
+          display: inline-block;
+          width: 3px;
+          height: 12px;
+          background: #3b82f6;
+          border-radius: 2px;
+          flex-shrink: 0;
         }
 
         .dsh-md-h3 {
@@ -338,10 +375,19 @@ window.__ModuleLoader__.load({
 
         .dsh-task-item {
           display: flex;
-          align-items: flex-start;
-          gap: 8px;
-          margin: 5px 0;
+          align-items: center;
+          gap: 9px;
+          margin: 4px 0;
           font-size: 13px;
+          padding: 6px 10px;
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          transition: all 0.15s ease;
+        }
+
+        .dsh-task-item:hover {
+          background: rgba(255, 255, 255, 0.04);
         }
 
         .dsh-task-checkbox {
@@ -351,11 +397,16 @@ window.__ModuleLoader__.load({
           width: 16px;
           height: 16px;
           border-radius: 4px;
-          margin-top: 3px;
           flex-shrink: 0;
           font-size: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.2);
+          font-weight: 700;
+          border: 1.5px solid rgba(255, 255, 255, 0.25);
           user-select: none;
+        }
+
+        .dsh-task-item.done {
+          background: rgba(34, 197, 94, 0.03);
+          border-color: rgba(34, 197, 94, 0.12);
         }
 
         .dsh-task-item.done .dsh-task-checkbox {
@@ -367,6 +418,11 @@ window.__ModuleLoader__.load({
         .dsh-task-item.done .dsh-task-label {
           color: var(--dsw-alias-label-tertiary, #71717a);
           text-decoration: line-through;
+        }
+
+        .dsh-task-item.in-progress {
+          background: rgba(59, 130, 246, 0.08);
+          border-color: rgba(59, 130, 246, 0.25);
         }
 
         .dsh-task-item.in-progress .dsh-task-checkbox {
@@ -381,8 +437,8 @@ window.__ModuleLoader__.load({
         }
 
         .dsh-task-item.pending .dsh-task-checkbox {
-          background: transparent;
-          border-color: rgba(255, 255, 255, 0.25);
+          background: rgba(255, 255, 255, 0.04);
+          border-color: rgba(255, 255, 255, 0.2);
         }
 
         .dsh-task-item.pending .dsh-task-label {
@@ -422,12 +478,13 @@ window.__ModuleLoader__.load({
 
         /* Drawer Footer */
         .dsh-drawer-footer {
-          padding: 10px 20px;
+          padding: 8px 16px;
           border-top: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
-          background: rgba(0, 0, 0, 0.15);
+          background: rgba(0, 0, 0, 0.2);
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: 12px;
           font-size: 11px;
           color: var(--dsw-alias-label-tertiary, #71717a);
           flex-shrink: 0;
@@ -437,15 +494,27 @@ window.__ModuleLoader__.load({
           display: flex;
           align-items: center;
           gap: 6px;
-          max-width: 280px;
+          min-width: 0;
+          flex: 1;
           overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
           cursor: pointer;
         }
 
-        .dsh-drawer-path-box:hover {
+        .dsh-drawer-path-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .dsh-drawer-path-box:hover .dsh-drawer-path-text {
           color: var(--dsw-alias-label-secondary, #d4d4d8);
+          text-decoration: underline;
+        }
+
+        .dsh-drawer-updated-box {
+          flex-shrink: 0;
+          white-space: nowrap;
+          color: var(--dsw-alias-label-tertiary, #71717a);
         }
 
         /* Empty state */
@@ -613,17 +682,23 @@ window.__ModuleLoader__.load({
         // Headings
         if (line.startsWith('# ')) {
           if (inList) { html += '</ul>'; inList = false; }
-          html += `<h1 class="dsh-md-h1">${inlineFormat(line.slice(2))}</h1>`;
+          const h1Text = line.slice(2).trim();
+          // Skip redundant title if it repeats "Session Progress" or "Tiến độ phiên làm việc"
+          if (/^(session\s+progress|tiến\s*độ\s*(phiên\s*làm\s*việc|công\s*việc)?)/i.test(h1Text)) {
+            continue;
+          }
+          html += `<h1 class="dsh-md-h1">${inlineFormat(h1Text)}</h1>`;
           continue;
         }
         if (line.startsWith('## ')) {
           if (inList) { html += '</ul>'; inList = false; }
-          html += `<h2 class="dsh-md-h2">📌 ${inlineFormat(line.slice(3))}</h2>`;
+          const h2Text = line.slice(3).trim().replace(/^[📌📍]\s*/, '');
+          html += `<h2 class="dsh-md-h2">${inlineFormat(h2Text)}</h2>`;
           continue;
         }
         if (line.startsWith('### ')) {
           if (inList) { html += '</ul>'; inList = false; }
-          html += `<h3 class="dsh-md-h3">${inlineFormat(line.slice(4))}</h3>`;
+          html += `<h3 class="dsh-md-h3">${inlineFormat(line.slice(4).trim())}</h3>`;
           continue;
         }
 
@@ -726,10 +801,46 @@ window.__ModuleLoader__.load({
     let drawerBackdrop = null;
     let drawerPanel = null;
 
+    /**
+     * Compute header height to position drawer cleanly below Electron window controls
+     */
+    function updateTopOffset() {
+      let top = 40;
+      try {
+        const sessionLogBtn = findSessionLogButton();
+        if (sessionLogBtn) {
+          const r = sessionLogBtn.getBoundingClientRect();
+          if (r.bottom > 20 && r.bottom < 100) {
+            top = Math.round(r.bottom);
+          }
+        } else {
+          const topBar = document.querySelector('header, [class*="headerBar"], [class*="titlebar"], [class*="headerNav"], [class*="topbar"]');
+          if (topBar) {
+            const r = topBar.getBoundingClientRect();
+            if (r.bottom > 20 && r.bottom < 100) {
+              top = Math.round(r.bottom);
+            }
+          }
+        }
+      } catch (e) {}
+
+      document.documentElement.style.setProperty('--dsh-drawer-top', `${top}px`);
+      if (drawerPanel) {
+        drawerPanel.style.top = `${top}px`;
+        drawerPanel.style.height = `calc(100vh - ${top}px)`;
+      }
+      if (drawerBackdrop) {
+        drawerBackdrop.style.top = `${top}px`;
+        drawerBackdrop.style.height = `calc(100vh - ${top}px)`;
+      }
+      return top;
+    }
+
     function ensureDrawerElements() {
       if (drawerPanel && drawerBackdrop) return;
 
       ensureStyles();
+      updateTopOffset();
 
       drawerBackdrop = document.createElement('div');
       drawerBackdrop.className = 'dsh-drawer-backdrop';
@@ -782,9 +893,10 @@ window.__ModuleLoader__.load({
         </div>
         <div class="dsh-drawer-footer">
           <div class="dsh-drawer-path-box" id="dsh-drawer-file-path" title="Click to copy full path">
-            <span>📁 (No file active)</span>
+            <span style="flex-shrink:0;">📁</span>
+            <span class="dsh-drawer-path-text" id="dsh-drawer-file-name">(No file active)</span>
           </div>
-          <div id="dsh-drawer-last-updated">Updated: --</div>
+          <div class="dsh-drawer-updated-box" id="dsh-drawer-last-updated">Updated: --</div>
         </div>
       `;
 
@@ -805,9 +917,12 @@ window.__ModuleLoader__.load({
       pathBox.addEventListener('click', () => {
         if (latestData?.filePath) {
           navigator.clipboard.writeText(latestData.filePath);
-          const orig = pathBox.innerHTML;
-          pathBox.innerHTML = '<span>✓ Path copied!</span>';
-          setTimeout(() => { pathBox.innerHTML = orig; }, 1200);
+          const nameSpan = drawerPanel.querySelector('#dsh-drawer-file-name');
+          if (nameSpan) {
+            const orig = nameSpan.textContent;
+            nameSpan.textContent = '✓ Path copied!';
+            setTimeout(() => { nameSpan.textContent = orig; }, 1200);
+          }
         }
       });
 
@@ -817,10 +932,15 @@ window.__ModuleLoader__.load({
           closeDrawer();
         }
       });
+
+      window.addEventListener('resize', () => {
+        if (isDrawerOpen) updateTopOffset();
+      });
     }
 
     function openDrawer(sessionId) {
       ensureDrawerElements();
+      updateTopOffset();
       if (sessionId) activeSessionId = sessionId;
       isDrawerOpen = true;
       drawerBackdrop.classList.add('open');
@@ -853,6 +973,7 @@ window.__ModuleLoader__.load({
       const fillEl = drawerPanel.querySelector('#dsh-drawer-progress-fill');
       const bodyEl = drawerPanel.querySelector('#dsh-drawer-body-content');
       const pathEl = drawerPanel.querySelector('#dsh-drawer-file-path');
+      const nameEl = drawerPanel.querySelector('#dsh-drawer-file-name');
       const updatedEl = drawerPanel.querySelector('#dsh-drawer-last-updated');
       const statusBadge = drawerPanel.querySelector('#dsh-drawer-status-badge');
       const actRow = drawerPanel.querySelector('#dsh-drawer-activity-row');
@@ -900,8 +1021,17 @@ window.__ModuleLoader__.load({
       }
 
       if (pathEl) {
-        pathEl.innerHTML = `<span>📁 ${escapeHtml(data?.fileName || 'No file active')}</span>`;
-        pathEl.title = data?.filePath ? `Click to copy: ${data.filePath}` : 'No file';
+        const rawName = data?.fileName || '(No file active)';
+        let shortName = rawName;
+        if (rawName.length > 32) {
+          shortName = rawName.slice(0, 15) + '...' + rawName.slice(-10);
+        }
+        if (nameEl) {
+          nameEl.textContent = shortName;
+        } else {
+          pathEl.innerHTML = `<span style="flex-shrink:0;">📁</span><span class="dsh-drawer-path-text">${escapeHtml(shortName)}</span>`;
+        }
+        pathEl.title = data?.filePath ? `Click to copy path: ${data.filePath}` : 'No file active';
       }
 
       if (updatedEl && data?.lastModified) {
@@ -911,8 +1041,16 @@ window.__ModuleLoader__.load({
     }
 
     function updateHeaderButtonUI(pct) {
+      // Remove any misplaced button inside the drawer
+      document.querySelectorAll('.dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
+        .forEach(el => el.remove());
+
       const btns = document.querySelectorAll('.dsh-session-progress-button, .dsh-task-progress-button');
       btns.forEach((btn) => {
+        if (btn.closest('.dsh-drawer-panel')) {
+          btn.remove();
+          return;
+        }
         const pill = btn.querySelector('.dsh-progress-pill');
         if (pill) {
           pill.textContent = `${pct}%`;
@@ -964,49 +1102,93 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // --- Fallback DOM Injector ---
-    function ensureFallbackButton() {
-      const existing = document.querySelector('.dsh-session-progress-button, .dsh-task-progress-button');
-      if (existing) return;
+    // --- Targeted DOM Detection & Fallback Injector ---
+    function findSessionLogButton() {
+      const allBtns = Array.from(document.querySelectorAll('button'));
+      return allBtns.find((b) => {
+        if (b.closest('.dsh-drawer-panel') || b.closest('.dsh-drawer-header')) return false;
+        const txt = (b.textContent || '').trim().toLowerCase();
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        const cls = (b.className || '').toString().toLowerCase();
+        return txt.includes('session log') || aria.includes('session log') || cls.includes('sessionlog');
+      });
+    }
 
-      const sessionLogBtn = document.querySelector('button.jGdBjq_sessionLogButton, button[class*="sessionLogButton"], button[aria-label*="Session log"], button:has(svg)');
-      let targetHeader = null;
-      let refNode = null;
-
+    function findTopHeader() {
+      // 1. Session log button parent container
+      const sessionLogBtn = findSessionLogButton();
       if (sessionLogBtn && sessionLogBtn.parentElement) {
-        targetHeader = sessionLogBtn.parentElement;
-        refNode = sessionLogBtn;
-      } else {
-        const headerContainers = document.querySelectorAll('header, [class*="header"], [class*="utilities"]');
-        for (const c of headerContainers) {
-          if (c.textContent.includes('Session log') || c.querySelector('button')) {
-            targetHeader = c;
-            break;
-          }
+        return { container: sessionLogBtn.parentElement, refNode: sessionLogBtn };
+      }
+
+      // 2. Look for top header / utilities bar in top 60px of the window
+      const candidates = Array.from(document.querySelectorAll('header, [class*="utilities"], [class*="headerNav"], [class*="topbar"], [class*="header"]'));
+      for (const el of candidates) {
+        if (el.closest('.dsh-drawer-panel') || el.closest('.dsh-drawer-header') || el.classList.contains('dsh-drawer-header')) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= 15 && rect.bottom > 20 && rect.bottom <= 80 && rect.width > 200) {
+          const util = el.querySelector('[class*="utilities"], [class*="actions"], [class*="right"]') || el;
+          return { container: util, refNode: null };
         }
       }
 
-      if (targetHeader) {
-        ensureStyles();
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'dsh-session-progress-button';
-        btn.title = 'View live session progress';
-        btn.innerHTML = `
-          <span class="dsh-progress-icon">📋</span>
-          <span class="dsh-progress-text">Progress</span>
-          <span class="dsh-progress-pill ${latestPercent === 100 ? 'done' : ''}">${latestPercent}%</span>
-        `;
-        btn.addEventListener('click', () => {
-          toggleDrawer(resolveCurrentSessionId());
-        });
+      return null;
+    }
 
-        if (refNode) {
-          targetHeader.insertBefore(btn, refNode);
-        } else {
-          targetHeader.appendChild(btn);
+    function createProgressButton() {
+      ensureStyles();
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dsh-session-progress-button';
+      btn.title = 'View live session progress';
+      btn.innerHTML = `
+        <span class="dsh-progress-icon">📋</span>
+        <span class="dsh-progress-text">Progress</span>
+        <span class="dsh-progress-pill ${latestPercent === 100 ? 'done' : ''}">${latestPercent}%</span>
+      `;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDrawer(resolveCurrentSessionId());
+      });
+      return btn;
+    }
+
+    function ensureFallbackButton() {
+      // Remove any button accidentally placed inside drawer
+      const insideDrawer = document.querySelectorAll('.dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button');
+      insideDrawer.forEach((el) => el.remove());
+
+      const sessionLogBtn = findSessionLogButton();
+      let existingBtn = Array.from(document.querySelectorAll('.dsh-session-progress-button, .dsh-task-progress-button'))
+        .find((b) => !b.closest('.dsh-drawer-panel'));
+
+      if (sessionLogBtn && sessionLogBtn.parentElement) {
+        // Position immediately before Session log button
+        if (existingBtn) {
+          if (existingBtn.nextElementSibling !== sessionLogBtn || existingBtn.parentElement !== sessionLogBtn.parentElement) {
+            sessionLogBtn.parentElement.insertBefore(existingBtn, sessionLogBtn);
+          }
+          return;
         }
-        console.log('[dsh-session-progress] Injected fallback header button into DOM');
+
+        const btn = createProgressButton();
+        sessionLogBtn.parentElement.insertBefore(btn, sessionLogBtn);
+        console.log('[dsh-session-progress] Injected progress button before sessionLogBtn');
+        return;
+      }
+
+      if (existingBtn) return;
+
+      // Fallback: search for top-level header bar
+      const headerTarget = findTopHeader();
+      if (headerTarget && headerTarget.container) {
+        const btn = createProgressButton();
+        if (headerTarget.refNode) {
+          headerTarget.container.insertBefore(btn, headerTarget.refNode);
+        } else {
+          headerTarget.container.appendChild(btn);
+        }
+        console.log('[dsh-session-progress] Injected fallback progress button into top header');
       }
     }
 
