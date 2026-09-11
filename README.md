@@ -6,6 +6,10 @@
 
 ## 1. Purpose & Overview
 
+<p align="center">
+  <img src="assets/preview.png" alt="Session Progress Drawer Preview" width="800" />
+</p>
+
 **dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
 
 In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs. 
