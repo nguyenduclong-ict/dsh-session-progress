@@ -26,10 +26,10 @@ Trong các phiên làm việc dài hoặc xử lý chuỗi tác vụ phức tạ
   - Tự động fallback đếm số lượng checklist Markdown (`- [x]`, `- [/]`, `- [ ]`) để tính tỷ lệ hoàn thành % nếu Agent quên khai báo số.
 - **Tự động thích ứng ngôn ngữ (Language Alignment)**: Nếu bạn giao tiếp bằng tiếng Việt, Agent sẽ tự động viết toàn bộ tiêu đề (Tổng quan, Checklist, Hoạt động hiện tại, v.v.) và nội dung công việc bằng tiếng Việt; nếu chat bằng tiếng Anh sẽ tự động viết bằng tiếng Anh.
 - **Nút tiến độ trực quan trên thanh Input & Tooltip tóm tắt**: Tích hợp trực tiếp vào thanh công cụ của ô nhập liệu (cạnh nút chọn Model và Context Meter), với vòng tròn SVG tiến độ, nhãn phần trăm thời gian thực và tooltip tóm tắt công việc đang chạy.
-- **Ngăn kéo trượt Slide-over Side Drawer**: Click vào nút trên Header sẽ trượt ra một bảng thông tin 440px từ cạnh phải:
-  - Thanh tiến độ đồ họa trực quan (Progress bar).
-  - Trình đọc Markdown tích hợp sẵn định dạng checkbox, đầu việc rõ ràng.
-  - Các nút thao tác nhanh: Mở file trên ứng dụng hệ điều hành (VS Code, Notepad) ở thanh chân trang (Footer), làm mới dữ liệu và đóng bảng trượt.
+- **Hiển thị thích ứng Hybrid Responsive (Split View & Modal Drawer)**: Tự động thích ứng linh hoạt theo kích thước cửa sổ:
+  - **Màn hình lớn (≥ 960px)**: Hoạt động dưới dạng **Split View song song** (tự động co lề khung làm việc 420px và tắt lớp phủ tối nền), cho phép bạn vừa đọc nội dung session, vừa nhập liệu/gửi lệnh trong ô Composer, vừa theo dõi tiến độ công việc cạnh phải.
+  - **Màn hình hẹp (< 960px)**: Tự động chuyển sang chế độ **Modal Drawer trượt phủ lên trên** có làm mờ nền để tối ưu không gian cho màn hình nhỏ.
+  - Các nút thao tác nhanh: Mở file trên ứng dụng hệ điều hành (VS Code, Notepad) ở thanh chân trang (Footer), làm mới dữ liệu và đóng bảng linh hoạt qua `✕`, phím `Esc`, hoặc click lại nút Progress trên toolbar.
 
 ---
 

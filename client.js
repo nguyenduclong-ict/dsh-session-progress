@@ -9,6 +9,12 @@ window.__ModuleLoader__.load({
     const React = require('react');
 
     const STYLE_ID = 'dsh-session-progress-style';
+
+    // DSH Native SVG Icons from @deepseek-ai/dsh-client-ui-primitives
+    const DSH_ICON_REFRESH = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M1.272 6.21348C1.70645 3.08888 4.59169 0.908064 7.71634 1.34239C8.95495 1.51469 10.0438 2.07331 10.8814 2.87755L11.9458 1.81407C12.1347 1.6255 12.4572 1.75911 12.4575 2.02598V5.08751C12.4574 5.25303 12.3233 5.38731 12.1577 5.38731H9.0972C8.82993 5.38731 8.69629 5.06361 8.88528 4.87462L10.0327 3.72618C9.3732 3.09994 8.52006 2.66569 7.5513 2.53087C5.08313 2.18779 2.80376 3.91044 2.46048 6.37852C2.11747 8.84665 3.84009 11.1261 6.30814 11.4693C8.77612 11.8121 11.0557 10.0896 11.399 7.62169L11.9937 7.70372L12.5874 7.78673C12.153 10.9112 9.26756 13.0919 6.1431 12.6578C3.01854 12.2234 0.837738 9.33809 1.272 6.21348Z" fill="currentColor"/></svg>`;
+
+    const DSH_ICON_CLOSE = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M14.1168 13.197L13.197 14.1167L1.8833 2.80303L2.80309 1.88324L14.1168 13.197Z" fill="currentColor"/><path d="M13.197 1.88326L14.1168 2.80305L2.80309 14.1168L1.8833 13.197L13.197 1.88326Z" fill="currentColor"/></svg>`;
+
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return;
       const style = document.createElement('style');
@@ -16,6 +22,7 @@ window.__ModuleLoader__.load({
       style.textContent = `
         :root {
           --dsh-drawer-top: 40px;
+          --dsh-drawer-width: 420px;
         }
 
         /* --- Composer Trailing Toolbar Progress Button --- */
@@ -205,11 +212,11 @@ window.__ModuleLoader__.load({
           right: 0;
           bottom: 0;
           height: calc(100vh - var(--dsh-drawer-top, 40px));
-          width: 440px;
+          width: var(--dsh-drawer-width, 420px);
           max-width: calc(100vw - 40px);
           background: var(--dsw-alias-bg-floating, #18181b);
           border-left: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
-          box-shadow: -8px 0 28px rgba(0, 0, 0, 0.5);
+          box-shadow: -6px 0 24px rgba(0, 0, 0, 0.45);
           z-index: 9999;
           display: flex;
           flex-direction: column;
@@ -221,6 +228,91 @@ window.__ModuleLoader__.load({
 
         .dsh-drawer-panel.open {
           transform: translateX(0);
+        }
+
+        /* --- Hybrid Responsive: Desktop Split-View in [data-side="right"] vs Compact Drawer --- */
+        @media (min-width: 960px) {
+          /* Desktop Split View: Disable dark overlay backdrop so user can interact with session */
+          body.dsh-drawer-open .dsh-drawer-backdrop {
+            display: none !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
+
+          /* Reset any whole-frame overrides */
+          [class*="frame"],
+          body.dsh-drawer-open [class*="frame"] {
+            width: 100% !important;
+            transition: none !important;
+          }
+
+          /* Contract conversation scroll body so it does not collide with [data-side="right"] */
+          body.dsh-drawer-open [data-conversation-scroll],
+          body.dsh-drawer-open [class*="scrollBody"] {
+            margin-right: var(--dsh-drawer-width, 420px) !important;
+            transition: margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+          }
+
+          [data-conversation-scroll],
+          [class*="scrollBody"] {
+            transition: margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+          }
+
+          /* Style [data-side="right"] as the dock container when drawer is open */
+          [data-side="right"] {
+            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+          }
+
+          body.dsh-drawer-open [data-side="right"] {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            left: auto !important;
+            width: var(--dsh-drawer-width, 420px) !important;
+            cursor: default !important;
+            pointer-events: auto !important;
+            z-index: 10 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            background: var(--dsw-alias-bg-floating, #18181b);
+            border-left: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
+            box-shadow: -6px 0 24px rgba(0, 0, 0, 0.45);
+          }
+
+          /* Hide resize handle indicator line of WidthHandle when drawer is open */
+          body.dsh-drawer-open [data-side="right"]:after {
+            display: none !important;
+          }
+
+          /* Panel styling when inside [data-side="right"] */
+          [data-side="right"] > .dsh-drawer-panel {
+            display: none;
+            position: relative !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: 100% !important;
+            transform: none !important;
+            box-shadow: none !important;
+            border-left: none !important;
+            background: transparent !important;
+          }
+
+          body.dsh-drawer-open [data-side="right"] > .dsh-drawer-panel {
+            display: flex !important;
+          }
+        }
+
+        @media (max-width: 959px) {
+          /* Compact View: Keep modal drawer overlay with responsive maximum width */
+          .dsh-drawer-panel {
+            width: 420px;
+            max-width: 90vw;
+          }
         }
 
         /* Drawer Header */
@@ -318,10 +410,32 @@ window.__ModuleLoader__.load({
           transform: scale(0.96);
         }
 
+        .dsh-drawer-btn.icon-only-btn {
+          width: 26px;
+          height: 26px;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex: none;
+        }
+
+        .dsh-drawer-btn.icon-only-btn svg {
+          display: block;
+          flex: none;
+          pointer-events: none;
+        }
+
+        .dsh-drawer-btn.refreshing svg {
+          animation: dsh-btn-spin 0.65s linear infinite;
+        }
+
+        @keyframes dsh-btn-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
         .dsh-drawer-btn.close-btn {
-          padding: 4px 8px;
-          font-size: 13px;
-          line-height: 1;
           color: var(--dsw-alias-label-tertiary, #71717a);
         }
 
@@ -1201,6 +1315,22 @@ window.__ModuleLoader__.load({
       return top;
     }
 
+    function syncDrawerContainer() {
+      if (!drawerPanel) return;
+      const isDesktop = window.innerWidth >= 960;
+      const rightContainer = document.querySelector('[data-side="right"]');
+
+      if (isDesktop && rightContainer) {
+        if (drawerPanel.parentElement !== rightContainer) {
+          rightContainer.appendChild(drawerPanel);
+        }
+      } else {
+        if (drawerPanel.parentElement !== document.body) {
+          document.body.appendChild(drawerPanel);
+        }
+      }
+    }
+
     function ensureDrawerElements() {
       if (drawerPanel && drawerBackdrop) return;
 
@@ -1222,11 +1352,11 @@ window.__ModuleLoader__.load({
               <span class="dsh-drawer-status-badge in_progress" id="dsh-drawer-status-badge">IN PROGRESS</span>
             </div>
             <div class="dsh-drawer-actions">
-              <button type="button" class="dsh-drawer-btn" id="dsh-refresh-btn" title="Refresh">
-                <span>⟳</span>
+              <button type="button" class="dsh-drawer-btn icon-only-btn" id="dsh-refresh-btn" title="Refresh">
+                ${DSH_ICON_REFRESH}
               </button>
-              <button type="button" class="dsh-drawer-btn close-btn" id="dsh-close-drawer-btn" title="Close (Esc)">
-                ✕
+              <button type="button" class="dsh-drawer-btn close-btn icon-only-btn" id="dsh-close-drawer-btn" title="Close (Esc)">
+                ${DSH_ICON_CLOSE}
               </button>
             </div>
           </div>
@@ -1265,13 +1395,30 @@ window.__ModuleLoader__.load({
       `;
 
       document.body.appendChild(drawerBackdrop);
-      document.body.appendChild(drawerPanel);
+      syncDrawerContainer();
+      if (!drawerPanel.parentElement) {
+        document.body.appendChild(drawerPanel);
+      }
+
+      // Stop pointer events propagation to prevent WidthHandle [data-side="right"] from capturing resize drag
+      const stopDrag = (e) => e.stopPropagation();
+      drawerPanel.addEventListener('pointerdown', stopDrag);
+      drawerPanel.addEventListener('pointermove', stopDrag);
+      drawerPanel.addEventListener('pointerup', stopDrag);
+      drawerPanel.addEventListener('mousedown', stopDrag);
+      drawerPanel.addEventListener('mouseup', stopDrag);
 
       // Bind Drawer events
       drawerPanel.querySelector('#dsh-open-file-btn').addEventListener('click', openProgressFile);
-      drawerPanel.querySelector('#dsh-refresh-btn').addEventListener('click', () => {
+      const refreshBtn = drawerPanel.querySelector('#dsh-refresh-btn');
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.classList.add('refreshing');
         lastRenderedContent = null;
-        fetchProgress(activeSessionId);
+        try {
+          await fetchProgress(activeSessionId);
+        } finally {
+          setTimeout(() => refreshBtn.classList.remove('refreshing'), 450);
+        }
       });
       drawerPanel.querySelector('#dsh-close-drawer-btn').addEventListener('click', () => closeDrawer());
 
@@ -1307,12 +1454,16 @@ window.__ModuleLoader__.load({
       });
 
       window.addEventListener('resize', () => {
-        if (isDrawerOpen) updateTopOffset();
+        if (isDrawerOpen) {
+          syncDrawerContainer();
+          updateTopOffset();
+        }
       });
     }
 
     function openDrawer(sessionId) {
       ensureDrawerElements();
+      syncDrawerContainer();
       updateTopOffset();
       if (sessionId && sessionId !== activeSessionId) {
         activeSessionId = sessionId;
@@ -1324,6 +1475,9 @@ window.__ModuleLoader__.load({
       drawerPanel.classList.add('open');
       fetchProgress(activeSessionId);
       startPolling(1500);
+      setTimeout(() => {
+        try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+      }, 300);
     }
 
     function closeDrawer() {
@@ -1333,6 +1487,9 @@ window.__ModuleLoader__.load({
       drawerBackdrop.classList.remove('open');
       drawerPanel.classList.remove('open');
       startPolling(3000);
+      setTimeout(() => {
+        try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+      }, 300);
     }
 
     function toggleDrawer(sessionId) {
@@ -1625,6 +1782,9 @@ window.__ModuleLoader__.load({
 
         const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
         updateHeaderButtonUI(latestPercent, hasFile);
+        if (isDrawerOpen) {
+          syncDrawerContainer();
+        }
       } finally {
         Promise.resolve().then(() => {
           isUpdatingProgressDOM = false;

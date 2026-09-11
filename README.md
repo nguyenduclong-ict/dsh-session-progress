@@ -25,10 +25,10 @@ In long-running or complex agentic sessions, it is often challenging for users t
   - Automatically falls back to parsing standard Markdown task checklists (`- [x]`, `- [/]`, `- [ ]`) if frontmatter is omitted.
 - **Adaptive Language Alignment**: Instructs the Agent to match the conversation language (e.g., Vietnamese, English) for all section headers, checklists, and task summaries while maintaining English YAML keys.
 - **Composer Toolbar Live Button & Activity Tooltip**: Mounts directly into DSH's composer input toolbar (adjacent to the Model Selector & Context Meter), featuring a sleek circular SVG progress ring, real-time percentage badge, and an interactive popover showing the active task.
-- **Slide-over Side Drawer**: Opens a smooth 440px right-side panel featuring:
-  - A visual gradient progress bar and active status indicators.
-  - Formatted Markdown viewer with rendered checkboxes and highlighted sections.
-  - Quick action buttons to open the raw file in the OS default editor (VS Code, Notepad) or trigger instant refresh.
+- **Hybrid Responsive Display (Split View & Modal Drawer)**: Dynamically adapts to your workspace layout:
+  - **Large Screens (≥ 960px)**: Operates as a seamless side-by-side **Split View** (contracts the main workspace frame by 420px without dark backdrops), allowing full reading and interaction with session conversations and input composer while monitoring live progress.
+  - **Compact Screens (< 960px)**: Automatically switches to a traditional **Slide-over Modal Drawer** with backdrop overlay to preserve compact workspace readability.
+  - Quick action buttons to open the raw file in the OS default editor (VS Code, Notepad), trigger instant refresh, or close via `✕` / `Esc` / toolbar toggle.
 
 ---
 
