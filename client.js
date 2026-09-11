@@ -1397,13 +1397,45 @@ window.__ModuleLoader__.load({
       return btn;
     }
 
-    function ensureFallbackButton() {
-      // Remove any legacy titlebar buttons
-      document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
-        .forEach(el => el.remove());
+    let isUpdatingProgressDOM = false;
+    let progressDebounceTimer = null;
 
-      const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
-      updateHeaderButtonUI(latestPercent, hasFile);
+    function isProgressPluginNode(node) {
+      if (!node || node.nodeType !== 1) return false;
+      const cls = node.className;
+      if (typeof cls === 'string' && (cls.includes('dsh-session-progress') || cls.includes('dsh-drawer') || cls.includes('dsh-progress'))) return true;
+      if (node.classList && (
+        node.classList.contains('dsh-session-progress-button') ||
+        node.classList.contains('dsh-drawer-overlay') ||
+        node.classList.contains('dsh-drawer-panel') ||
+        node.classList.contains('dsh-progress-tooltip')
+      )) return true;
+      return false;
+    }
+
+    function ensureFallbackButton() {
+      if (isUpdatingProgressDOM) return;
+      isUpdatingProgressDOM = true;
+      try {
+        // Remove any legacy titlebar buttons
+        document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
+          .forEach(el => el.remove());
+
+        const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
+        updateHeaderButtonUI(latestPercent, hasFile);
+      } finally {
+        Promise.resolve().then(() => {
+          isUpdatingProgressDOM = false;
+        });
+      }
+    }
+
+    function scheduleFallbackButton() {
+      if (progressDebounceTimer) return;
+      progressDebounceTimer = setTimeout(() => {
+        progressDebounceTimer = null;
+        ensureFallbackButton();
+      }, 300);
     }
 
     // Export module apply & inject
@@ -1417,11 +1449,41 @@ window.__ModuleLoader__.load({
       fetchProgress(resolveCurrentSessionId());
       startPolling(3000);
 
-      // Observer to ensure titlebar buttons are removed and bottom-right pill state is synced
+      // Observer with multi-layer shield to prevent infinite mutation loops
       ensureFallbackButton();
-      const observer = new MutationObserver(() => {
-        ensureFallbackButton();
+      const observer = new MutationObserver((mutations) => {
+        if (isUpdatingProgressDOM) return;
+
+        let relevant = false;
+        for (const m of mutations) {
+          const target = m.target;
+          if (target && target.nodeType === 1) {
+            if (
+              isProgressPluginNode(target) ||
+              target.closest?.('.dsh-session-progress-button') ||
+              target.closest?.('.dsh-drawer-overlay') ||
+              target.closest?.('.dsh-drawer-panel')
+            ) {
+              continue;
+            }
+          }
+          if (m.type === 'childList') {
+            const allAddedAreSelf = Array.from(m.addedNodes).every(n => isProgressPluginNode(n));
+            const allRemovedAreSelf = Array.from(m.removedNodes).every(n => isProgressPluginNode(n));
+            if ((m.addedNodes.length > 0 || m.removedNodes.length > 0) &&
+                (m.addedNodes.length === 0 || allAddedAreSelf) &&
+                (m.removedNodes.length === 0 || allRemovedAreSelf)) {
+              continue;
+            }
+          }
+          relevant = true;
+          break;
+        }
+        if (relevant) {
+          scheduleFallbackButton();
+        }
       });
+
       observer.observe(document.body, {
         childList: true,
         subtree: true
