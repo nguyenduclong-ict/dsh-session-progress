@@ -395,11 +395,20 @@ You MUST maintain and continuously update a Markdown progress file for this sess
 
 4. ZERO-STEP MANDATE & REAL-TIME UPDATES (STRICT & CRITICAL):
    - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be updating this progress file.
-   - 100% RESET TRIGGER: If the current progress is 100% or marked as completed from a prior task, you MUST IMMEDIATELY reset \`progress: 0%\` (or \`5%\`), set \`status: in_progress\`, update \`current_activity\` to describe the new task, and refresh the checklist with the new plan.
+   - 100% RESET TRIGGER: If the current progress is 100% or marked as completed from a prior task, you MUST IMMEDIATELY reset \`progress: 0%\` (or \`5%\`), set \`status: in_progress\`, update \`current_activity\` to describe the new task, and refresh the checklist with the new plan (see rule 5 for the required full rewrite).
    - WHY THIS IS MANDATORY: The user is actively monitoring the live progress bar on the UI. Delaying the progress update while investigating code or running commands makes the system appear frozen, stalled, or stuck at 100%.
    - Keep this file continuously updated as subtasks complete or new steps emerge throughout the session.
 
-5. STRICT 5-SECTION STRUCTURE & NO DUPLICATION (MANDATORY):
+5. NEW TASK = FULL REWRITE, NEVER ACCUMULATE (STRICT & CRITICAL):
+   - ONE OBJECTIVE PER FILE: This file tracks exactly ONE active objective at a time. It is NOT a session-wide log of everything done in the session.
+   - DETECT A NEW TASK: The user's message starts a NEW task when it targets a DIFFERENT objective than the one this file currently tracks (different problem, different feature, unrelated request), OR when the previously tracked objective is already finished. An objective counts as FINISHED when ANY of these is true: it has been delivered/completed, its \`progress\` is \`100%\`, its \`status\` is \`completed\`, the user confirms it is done, or the user moves on to an unrelated request without asking for more work on it.
+   - REQUIRED ACTION — REWRITE THE WHOLE FILE: In that situation you MUST discard the old document and WRITE THIS FILE FROM SCRATCH for the new task, in that same first tool call. The old title, the old frontmatter (\`progress\`, \`status\`, \`current_activity\`), the old \`Overview\`, the old \`Checklist\`, and the old \`Current Activity\` are ALL REPLACED — not merged, not appended. The new document starts with the new goal title, \`progress: 0%\` (or \`5%\`), \`status: in_progress\`, a new one-line \`current_activity\` describing the new task, and a brand-new checklist built only from the new task.
+   - STRICTLY FORBIDDEN: Keeping the previous task's checklist and merely "adding a few items" for the new task; ticking old items to fake continuity; carrying the old percentage into the new task; tracking two objectives or two checklists in one file; leaving the old content in place and only appending a new section at the bottom.
+   - CONTINUATION IS THE ONLY EXCEPTION: If the message refines, extends, corrects, or continues the SAME objective already tracked in this file, keep the existing document and update it in place (tick finished milestones, add new subtasks, adjust \`progress\`, refresh \`current_activity\`).
+   - PRESERVE ONLY WHAT MATTERS: If something from the previous task is still relevant (a constraint, a decision, a file path, an unfinished side effect), compress it into ONE short line under \`Key Findings / Notes\`; never keep its checklist. If the user abandons an unfinished task and starts another, do not silently carry its percentage: give the new task its own percentage and record the abandoned task in one line under \`Key Findings / Notes\` (e.g. "Tác vụ trước bị bỏ dở: ...").
+   - SELF-CHECK BEFORE WRITING: Ask yourself "Is this the same objective this file already tracks?" If NO, the write MUST be a complete replacement of the file content, never an edit that adds to it.
+
+6. STRICT 5-SECTION STRUCTURE & NO DUPLICATION (MANDATORY):
    The document body MUST contain ONLY the 5 canonical H2 sections in exact order:
    - Overview
    - Checklist
