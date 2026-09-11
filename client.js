@@ -1146,6 +1146,39 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The active session key, or null on a brand-new session screen (nothing selected yet).
+     */
+    function currentSessionKey() {
+      const sid = resolveCurrentSessionId() || activeSessionId;
+      return sid && sid !== 'default' ? String(sid) : null;
+    }
+
+    /**
+     * Whether the agent has already written a progress file for the active session.
+     */
+    function hasProgressFile() {
+      return Boolean(latestData && latestData.found && latestData.hasFile);
+    }
+
+    /**
+     * The toolbar control is pointless on a new-session screen (no session at all) and before the
+     * agent writes the file (nothing to show), so it stays hidden in both cases. It remains
+     * reachable while tracking is switched OFF, otherwise the switch could never be turned back on.
+     */
+    function shouldShowProgressTrigger() {
+      const sid = currentSessionKey();
+      if (!sid) return false;
+      return hasProgressFile() || !isSessionEnabled(sid);
+    }
+
+    /**
+     * The side panel is only openable for a real session that already has a progress file.
+     */
+    function canOpenProgressPanel() {
+      return Boolean(currentSessionKey()) && hasProgressFile();
+    }
+
+    /**
      * Fetch session progress content from backend
      */
     async function fetchProgress(sessionId) {
@@ -1773,6 +1806,12 @@ window.__ModuleLoader__.load({
     }
 
     function openDrawer(sessionId) {
+      if (!canOpenProgressPanel()) {
+        // Brand-new session screen, or the agent has not written the progress file yet: there is
+        // nothing to display, so the panel stays closed. Refresh so it appears once the file exists.
+        fetchProgress(sessionId ?? resolveCurrentSessionId());
+        return;
+      }
       ensureDrawerElements();
       applyDrawerWidth(getSavedDrawerWidth(), false);
       syncDrawerContainer();
@@ -2015,6 +2054,13 @@ window.__ModuleLoader__.load({
         document.body.appendChild(btn);
       }
 
+      // New session screen, or no progress file yet: keep the control out of the way entirely.
+      if (!shouldShowProgressTrigger()) {
+        btn.style.display = 'none';
+        if (isDrawerOpen) closeDrawer();
+        return;
+      }
+
       btn.style.display = 'inline-flex';
       btn.removeAttribute('title'); // Prevent native OS tooltip overlapping the custom UI
 
@@ -2189,6 +2235,7 @@ window.__ModuleLoader__.load({
       btn.type = 'button';
       const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
       btn.className = `dsh-session-progress-button ${hasFile ? '' : 'icon-only'}`;
+      btn.style.display = shouldShowProgressTrigger() ? 'inline-flex' : 'none';
       btn.setAttribute('aria-label', `Session Progress: ${hasFile ? latestPercent + '%' : 'Ready'}`);
 
       const circumference = 34.56;
