@@ -11,20 +11,36 @@ export const inject = ['webServer'];
 const sessionProgressMap = new Map();
 let latestActiveSessionId = null;
 
-// Settings persistence for disabled sessions
+// Settings persistence: a per-session override map plus the default that applies to every session
+// without an override. The default is what the toolbar toggle switches on a brand-new session
+// screen, where no session id exists yet but the user must still be able to turn tracking off.
 const SETTINGS_FILE = path.join(os.homedir(), '.dsh-session-progress-settings.json');
-const disabledSessions = new Set();
+/** sessionId -> explicit enabled flag (an override of the default). */
+const sessionEnabledOverrides = new Map();
+/** Whether sessions without an override have progress tracking enabled. */
+let defaultEnabled = true;
+
+/** The scope key the UI uses for the "applies to new sessions" toggle. */
+export const DEFAULT_SCOPE = 'default';
 
 function loadSettings() {
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      if (Array.isArray(data?.disabledSessions)) {
-        disabledSessions.clear();
-        for (const sid of data.disabledSessions) {
-          if (sid) disabledSessions.add(String(sid));
-        }
+    if (!fs.existsSync(SETTINGS_FILE)) return;
+    const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+
+    if (typeof data?.defaultEnabled === 'boolean') {
+      defaultEnabled = data.defaultEnabled;
+    }
+    if (data?.overrides && typeof data.overrides === 'object') {
+      sessionEnabledOverrides.clear();
+      for (const [sid, enabled] of Object.entries(data.overrides)) {
+        if (sid && typeof enabled === 'boolean') sessionEnabledOverrides.set(String(sid), enabled);
+      }
+    }
+    // Legacy shape: a list of disabled session ids, before the default scope existed.
+    if (Array.isArray(data?.disabledSessions)) {
+      for (const sid of data.disabledSessions) {
+        if (sid) sessionEnabledOverrides.set(String(sid), false);
       }
     }
   } catch (e) {
@@ -35,7 +51,8 @@ function loadSettings() {
 function saveSettings() {
   try {
     const data = {
-      disabledSessions: Array.from(disabledSessions)
+      defaultEnabled,
+      overrides: Object.fromEntries(sessionEnabledOverrides)
     };
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) {
@@ -45,20 +62,37 @@ function saveSettings() {
 
 loadSettings();
 
+/**
+ * Whether progress tracking is switched off for a session. The `default` scope (or a missing id)
+ * answers with the default that applies to sessions without their own override.
+ * @param {string} sessionId - session id, or `default`.
+ * @returns {boolean} true when tracking is disabled.
+ */
 export function isSessionDisabled(sessionId) {
-  if (!sessionId) return false;
-  return disabledSessions.has(String(sessionId));
+  if (!sessionId || String(sessionId) === DEFAULT_SCOPE) return !defaultEnabled;
+  const sId = String(sessionId);
+  const override = sessionEnabledOverrides.get(sId);
+  return override === undefined ? !defaultEnabled : !override;
 }
 
-export function setSessionDisabled(sessionId, disabled) {
-  if (!sessionId) return;
-  const sId = String(sessionId);
-  if (disabled) {
-    disabledSessions.add(sId);
+/**
+ * Record an explicit per-session choice; `default` changes what new sessions inherit.
+ * @param {string} sessionId - session id, or `default` for the default scope.
+ * @param {boolean} enabled - whether tracking should be on.
+ */
+export function setSessionEnabled(sessionId, enabled) {
+  const sId = sessionId ? String(sessionId) : DEFAULT_SCOPE;
+  if (sId === DEFAULT_SCOPE) {
+    defaultEnabled = Boolean(enabled);
   } else {
-    disabledSessions.delete(sId);
+    sessionEnabledOverrides.set(sId, Boolean(enabled));
   }
   saveSettings();
+}
+
+/** Back-compat wrapper used by older call sites. */
+export function setSessionDisabled(sessionId, disabled) {
+  setSessionEnabled(sessionId, !disabled);
 }
 
 /**
@@ -943,11 +977,12 @@ export function apply(ctx) {
       const qSessionId = params.sessionId || 'default';
       let targetEnabled = params.enabled;
       if (typeof targetEnabled !== 'boolean') {
-        targetEnabled = isSessionDisabled(qSessionId); // toggle
+        targetEnabled = !isSessionDisabled(qSessionId); // toggle
       }
-      setSessionDisabled(qSessionId, !targetEnabled);
+      setSessionEnabled(qSessionId, targetEnabled);
       const isNowEnabled = !isSessionDisabled(qSessionId);
-      ctx.logger?.info?.(`[dsh-session-progress] Session ${qSessionId} progress enabled set to ${isNowEnabled}`);
+      const scope = qSessionId === DEFAULT_SCOPE ? 'default (new sessions)' : `session ${qSessionId}`;
+      ctx.logger?.info?.(`[dsh-session-progress] ${scope} progress enabled set to ${isNowEnabled}`);
       return res.end(JSON.stringify({
         success: true,
         sessionId: qSessionId,

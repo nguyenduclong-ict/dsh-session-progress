@@ -1058,10 +1058,14 @@ window.__ModuleLoader__.load({
     const sessionEnabledMap = new Map();
 
     function isSessionEnabled(sessionId) {
-      if (!sessionId) return true;
-      const sId = String(sessionId);
+      const sId = sessionId ? String(sessionId) : 'default';
       if (sessionEnabledMap.has(sId)) {
         return sessionEnabledMap.get(sId);
+      }
+      // A session without its own entry inherits the default scope (what the switch sets on a
+      // brand-new session screen is exactly this value).
+      if (sId !== 'default' && sessionEnabledMap.has('default')) {
+        return sessionEnabledMap.get('default');
       }
       return true;
     }
@@ -1161,14 +1165,12 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The toolbar control is pointless on a new-session screen (no session at all) and before the
-     * agent writes the file (nothing to show), so it stays hidden in both cases. It remains
-     * reachable while tracking is switched OFF, otherwise the switch could never be turned back on.
+     * The progress control is ALWAYS mounted (beside the model selector) — including on a brand-new
+     * session screen, because its popover carries the switch that turns progress tracking on or off
+     * for coming sessions. Only the side panel is gated on an existing progress file.
      */
     function shouldShowProgressTrigger() {
-      const sid = currentSessionKey();
-      if (!sid) return false;
-      return hasProgressFile() || !isSessionEnabled(sid);
+      return true;
     }
 
     /**
@@ -1179,42 +1181,46 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Fetch session progress content from backend
+     * Fetch session progress content from backend. With no session id (a brand-new session screen)
+     * it queries the `default` scope instead, which is where the enable/disable switch lives.
      */
     async function fetchProgress(sessionId) {
       if (sessionId === undefined) {
         sessionId = resolveCurrentSessionId();
       }
-      if (!sessionId) {
-        latestData = null;
-        latestPercent = 0;
-        activeSessionId = null;
-        notifySubscribers();
-        updateDrawerUI(null);
-        updateHeaderButtonUI(0, false, true);
-        return null;
-      }
+      const scope = sessionId && sessionId !== 'default' ? String(sessionId) : 'default';
+      const isDefaultScope = scope === 'default';
 
       try {
-        const res = await fetch(`/api/session-progress/content?sessionId=${encodeURIComponent(sessionId)}`);
+        const res = await fetch(`/api/session-progress/content?sessionId=${encodeURIComponent(scope)}`);
         if (res.ok) {
           const data = await res.json();
           // Guard against out-of-order responses if user switched sessions
           const currentSid = resolveCurrentSessionId();
-          if (currentSid && currentSid !== sessionId) {
+          const currentScope = currentSid && currentSid !== 'default' ? String(currentSid) : 'default';
+          if (currentScope !== scope) {
             return null;
           }
 
-          const isEnabled = data?.enabled !== undefined ? Boolean(data.enabled) : isSessionEnabled(sessionId);
-          sessionEnabledMap.set(String(sessionId), isEnabled);
+          const isEnabled = data?.enabled !== undefined ? Boolean(data.enabled) : isSessionEnabled(scope);
+          sessionEnabledMap.set(scope, isEnabled);
 
           const hasFile = Boolean(data && data.found && data.hasFile);
-          latestData = hasFile ? { ...data, enabled: isEnabled } : (isEnabled ? null : { enabled: false });
-          latestPercent = (hasFile && typeof data.percent === 'number') ? data.percent : 0;
-          activeSessionId = sessionId;
+          if (isDefaultScope) {
+            // No file can belong to the default scope: keep the state empty, only the switch matters.
+            latestData = null;
+            latestPercent = 0;
+            activeSessionId = null;
+          } else {
+            latestData = hasFile ? { ...data, enabled: isEnabled } : (isEnabled ? null : { enabled: false });
+            latestPercent = (hasFile && typeof data.percent === 'number') ? data.percent : 0;
+            activeSessionId = scope;
+          }
 
           notifySubscribers();
-          if (hasFile && isEnabled) {
+          if (isDefaultScope) {
+            updateDrawerUI(null);
+          } else if (hasFile && isEnabled) {
             updateDrawerUI(latestData);
           } else if (!isEnabled) {
             updateDrawerUI({ enabled: false, ...latestData });
@@ -2054,10 +2060,13 @@ window.__ModuleLoader__.load({
         document.body.appendChild(btn);
       }
 
-      // New session screen, or no progress file yet: keep the control out of the way entirely.
+      // The control stays mounted on every screen (its popover carries the on/off switch for new
+      // sessions), but the side panel is only meaningful for a session that owns a progress file.
+      if (isDrawerOpen && !canOpenProgressPanel()) {
+        closeDrawer();
+      }
       if (!shouldShowProgressTrigger()) {
         btn.style.display = 'none';
-        if (isDrawerOpen) closeDrawer();
         return;
       }
 
@@ -2076,6 +2085,9 @@ window.__ModuleLoader__.load({
       }
 
       const activity = latestData?.currentActivity;
+      // On a brand-new session screen nothing is tracked yet, so the popover explains that its
+      // switch applies to the sessions about to be created.
+      const isNewSessionScreen = !currentSessionKey();
 
       if (!isEnabled) {
         btn.classList.remove('icon-only');
@@ -2095,16 +2107,18 @@ window.__ModuleLoader__.load({
             <span class="dsh-progress-tooltip-title">Session Progress</span>
           </div>
           <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-tertiary, #71717a); font-size:11px;">
-            Progress tracking is disabled for this session (conserves tokens).
+            ${isNewSessionScreen
+              ? 'Progress tracking is OFF for new sessions (conserves tokens).'
+              : 'Progress tracking is disabled for this session (conserves tokens).'}
           </div>
           <div class="dsh-tooltip-toggle-row">
             <span class="dsh-tooltip-toggle-label">
               <span>⚡ Session Progress</span>
             </span>
-            <div class="dsh-toggle-switch" id="dsh-tooltip-toggle-switch" title="Enable progress tracking for this session"></div>
+            <div class="dsh-toggle-switch" id="dsh-tooltip-toggle-switch" title="${isNewSessionScreen ? 'Enable progress tracking for new sessions' : 'Enable progress tracking for this session'}"></div>
           </div>
         `;
-        btn.setAttribute('aria-label', 'Session Progress: Disabled (OFF)');
+        btn.setAttribute('aria-label', `Session Progress: Disabled (OFF)${isNewSessionScreen ? ' for new sessions' : ''}`);
       } else {
         btn.classList.remove('disabled');
         const numPct = typeof pct === 'number' ? Math.min(100, Math.max(0, pct)) : 0;
@@ -2166,22 +2180,24 @@ window.__ModuleLoader__.load({
           `;
           btn.setAttribute('aria-label', `Session Progress: ${numPct}%`);
         } else {
-          // Ready / New session without progress file yet (hide 0% badge)
+          // Ready / new session without a progress file yet (0% badge stays hidden)
           tooltip.innerHTML = `
             <div class="dsh-progress-tooltip-header">
-              <span class="dsh-progress-tooltip-title">Ready to Track</span>
+              <span class="dsh-progress-tooltip-title">${isNewSessionScreen ? 'New Session' : 'Ready to Track'}</span>
             </div>
             <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-secondary, #a1a1aa); font-size:11px;">
-              Agent will automatically track progress upon starting tasks.
+              ${isNewSessionScreen
+                ? 'Progress tracking is ON for new sessions. The switch below turns it off.'
+                : 'Agent will automatically track progress upon starting tasks.'}
             </div>
             <div class="dsh-tooltip-toggle-row">
               <span class="dsh-tooltip-toggle-label">
                 <span>⚡ Session Progress</span>
               </span>
-              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="Disable progress tracking for this session"></div>
+              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="${isNewSessionScreen ? 'Disable progress tracking for new sessions' : 'Disable progress tracking for this session'}"></div>
             </div>
           `;
-          btn.setAttribute('aria-label', 'Session Progress: Ready');
+          btn.setAttribute('aria-label', isNewSessionScreen ? 'Session Progress: ON for new sessions' : 'Session Progress: Ready');
         }
       }
 
