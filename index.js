@@ -9,6 +9,7 @@ export const inject = ['webServer'];
 
 // Map: sessionId -> { filePath, uuid, sessionId, createdAt, lastUpdated }
 const sessionProgressMap = new Map();
+let latestActiveSessionId = null;
 
 /**
  * Sanitize a string to be safely used as a filename component
@@ -16,6 +17,70 @@ const sessionProgressMap = new Map();
 function sanitizeKey(str) {
   if (!str) return 'default';
   return String(str).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+}
+
+/**
+ * Locate the most relevant active progress record across memory and disk
+ */
+export function findLatestSessionProgress() {
+  // 1. If latestActiveSessionId is known and its file exists, prioritize it
+  if (latestActiveSessionId && sessionProgressMap.has(latestActiveSessionId)) {
+    const rec = sessionProgressMap.get(latestActiveSessionId);
+    if (rec?.filePath && fs.existsSync(rec.filePath)) {
+      try {
+        const stat = fs.statSync(rec.filePath);
+        return { ...rec, lastUpdated: stat.mtimeMs };
+      } catch (e) {}
+    }
+  }
+
+  // 2. Scan sessionProgressMap for the newest file
+  let bestRecord = null;
+  let bestMtime = 0;
+  for (const [sId, rec] of sessionProgressMap.entries()) {
+    if (rec?.filePath && fs.existsSync(rec.filePath)) {
+      try {
+        const stat = fs.statSync(rec.filePath);
+        if (stat.mtimeMs > bestMtime) {
+          bestMtime = stat.mtimeMs;
+          bestRecord = { ...rec, sessionId: sId, lastUpdated: stat.mtimeMs };
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 3. Scan os.tmpdir() for all dsh-progress-*.md files
+  const tmpDir = os.tmpdir();
+  try {
+    const files = fs.readdirSync(tmpDir);
+    for (const f of files) {
+      if (f.startsWith('dsh-progress-') && f.endsWith('.md')) {
+        const full = path.join(tmpDir, f);
+        try {
+          const stat = fs.statSync(full);
+          if (stat.mtimeMs > bestMtime) {
+            const inner = f.slice('dsh-progress-'.length, -3);
+            let rawId = inner;
+            let fileUuid = '';
+            if (inner.length > 37) {
+              fileUuid = inner.slice(-36);
+              rawId = inner.slice(0, -37);
+            }
+            bestMtime = stat.mtimeMs;
+            bestRecord = {
+              sessionId: rawId,
+              filePath: full,
+              uuid: fileUuid,
+              createdAt: stat.birthtimeMs || stat.mtimeMs,
+              lastUpdated: stat.mtimeMs
+            };
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+
+  return bestRecord;
 }
 
 /**
@@ -67,6 +132,15 @@ function getOrCreateSessionProgress(sessionId) {
       }
     }
   } catch (e) {}
+
+  // If sId is 'default', adopt the latest active progress file instead of creating a dummy default
+  if (sId === 'default') {
+    const latest = findLatestSessionProgress();
+    if (latest && fs.existsSync(latest.filePath)) {
+      sessionProgressMap.set('default', latest);
+      return latest;
+    }
+  }
 
   // Allocate a designated file path (DO NOT create on disk until agent writes to it)
   const fileUuid = randomUUID();
@@ -244,6 +318,9 @@ export function apply(ctx) {
           const agent = context?.agent || context?.scope;
           const session = agent?.session;
           const sessionId = session?.header?.id || session?.id || 'default';
+          if (sessionId && sessionId !== 'default') {
+            latestActiveSessionId = sessionId;
+          }
           const record = getOrCreateSessionProgress(sessionId);
 
           return `
@@ -361,18 +438,34 @@ current_activity: "Đang chạy bộ kiểm thử"
     const qFilePath = reqUrl.searchParams.get('filePath');
 
     let targetPath = qFilePath;
-    let record = sessionProgressMap.get(qSessionId);
+    let effectiveSessionId = qSessionId;
+    let record = null;
 
-    if (!targetPath) {
-      if (!record) {
-        record = getOrCreateSessionProgress(qSessionId);
+    if (targetPath && fs.existsSync(targetPath)) {
+      effectiveSessionId = qSessionId;
+    } else {
+      // If a specific session ID (not default) was requested
+      if (qSessionId && qSessionId !== 'default' && qSessionId !== 'undefined' && qSessionId !== 'null') {
+        record = sessionProgressMap.get(qSessionId);
+        if (!record || !fs.existsSync(record.filePath)) {
+          record = getOrCreateSessionProgress(qSessionId);
+        }
+        if (record?.filePath && fs.existsSync(record.filePath)) {
+          targetPath = record.filePath;
+          effectiveSessionId = qSessionId;
+        }
       }
-      targetPath = record?.filePath;
-    }
 
-    if (!targetPath || !fs.existsSync(targetPath)) {
-      record = getOrCreateSessionProgress(qSessionId);
-      targetPath = record?.filePath;
+      // If no file found for specific session, or if sessionId was 'default':
+      // Fallback to the latest active progress file on the system
+      if (!targetPath || !fs.existsSync(targetPath)) {
+        const latest = findLatestSessionProgress();
+        if (latest?.filePath && fs.existsSync(latest.filePath)) {
+          targetPath = latest.filePath;
+          effectiveSessionId = latest.sessionId || qSessionId;
+          record = latest;
+        }
+      }
     }
 
     if (targetPath && fs.existsSync(targetPath)) {
@@ -385,7 +478,7 @@ current_activity: "Đang chạy bộ kiểm thử"
           success: true,
           found: true,
           hasFile: true,
-          sessionId: qSessionId,
+          sessionId: effectiveSessionId,
           filePath: targetPath,
           fileName: path.basename(targetPath),
           percent: parsed.percent,

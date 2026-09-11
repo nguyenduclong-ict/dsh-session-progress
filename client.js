@@ -687,6 +687,7 @@ window.__ModuleLoader__.load({
     }
 
     // Shared runtime state
+    let cordisCtx = null;
     let activeSessionId = null;
     let latestPercent = 0;
     let latestData = null;
@@ -704,10 +705,27 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Resolve the current Session ID from URL or DOM
+     * Resolve the current Session ID from Cordis, URL, or DOM
      */
     function resolveCurrentSessionId() {
-      // 1. URL search param or hash
+      // 1. From Cordis services
+      if (cordisCtx) {
+        try {
+          const s = cordisCtx.sessions?.list?.getSnapshot?.()?.current;
+          if (s) return s;
+        } catch (e) {}
+        try {
+          const s = cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.key ||
+                    cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.sessionId;
+          if (s) return s;
+        } catch (e) {}
+        try {
+          const s = cordisCtx.uiWorkspace?.sessions?.list?.getSnapshot?.()?.current;
+          if (s) return s;
+        } catch (e) {}
+      }
+
+      // 2. URL search param or hash
       try {
         const hashMatch = window.location.hash.match(/session[=\/]([a-zA-Z0-9_-]+)/);
         if (hashMatch && hashMatch[1]) return hashMatch[1];
@@ -715,11 +733,11 @@ window.__ModuleLoader__.load({
         if (searchMatch && searchMatch[1]) return searchMatch[1];
       } catch (e) {}
 
-      // 2. DOM inspection for active session card or workspace
+      // 3. DOM inspection for active session card or workspace
       try {
-        const activeCard = document.querySelector('[data-session-id][data-active="true"], [data-session-id].active');
+        const activeCard = document.querySelector('[data-session-id][data-active="true"], [data-session-id].active, [data-session][data-active="true"], [data-session].active, [class*="session"][class*="active"], [class*="active"][data-id]');
         if (activeCard) {
-          const id = activeCard.getAttribute('data-session-id');
+          const id = activeCard.getAttribute('data-session-id') || activeCard.getAttribute('data-session') || activeCard.getAttribute('data-id');
           if (id) return id;
         }
       } catch (e) {}
@@ -739,6 +757,9 @@ window.__ModuleLoader__.load({
           const hasFile = Boolean(data && data.found && data.hasFile);
           latestData = hasFile ? data : null;
           latestPercent = (hasFile && typeof data.percent === 'number') ? data.percent : 0;
+          if (data?.sessionId && data.sessionId !== 'default' && data.sessionId !== activeSessionId) {
+            activeSessionId = data.sessionId;
+          }
           notifySubscribers();
           if (hasFile) {
             updateDrawerUI(data);
@@ -1458,8 +1479,23 @@ window.__ModuleLoader__.load({
     exports.inject = ['slots'];
     exports.apply = function(ctx) {
       console.log('[dsh-session-progress] client plugin loaded with bottom-right floating pill...');
+      cordisCtx = ctx;
       ensureStyles();
       ensureDrawerElements();
+
+      // Subscribe to sessions service changes if available
+      try {
+        if (ctx.sessions?.list?.subscribe) {
+          ctx.sessions.list.subscribe((snapshot) => {
+            const currentId = snapshot?.current;
+            if (currentId && currentId !== activeSessionId) {
+              activeSessionId = currentId;
+              lastRenderedContent = null;
+              fetchProgress(activeSessionId);
+            }
+          });
+        }
+      } catch (e) {}
 
       // Initial progress fetch
       fetchProgress(resolveCurrentSessionId());
