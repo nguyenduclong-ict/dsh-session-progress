@@ -364,7 +364,13 @@ export function lintProgressDocument(content) {
   const sections = [];
   const sectionCounts = new Map();
 
-  for (const line of String(content ?? '').split(/\r?\n/)) {
+  const text = String(content ?? '');
+  const lines = text.split(/\r?\n/);
+  let lastSectionStart = -1;
+  const lineOccurrences = new Map();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const titleMatch = line.match(/^#\s+(\S.*)$/);
     if (titleMatch) {
       h1.push(titleMatch[1].trim());
@@ -375,8 +381,15 @@ export function lintProgressDocument(content) {
       const raw = sectionMatch[1].replace(/[*_`\s]+$/, '').trim();
       if (!raw) continue;
       sections.push(raw);
+      lastSectionStart = index;
       const key = raw.toLowerCase();
       sectionCounts.set(key, (sectionCounts.get(key) || 0) + 1);
+      continue;
+    }
+    // Facts belong once in the file; a repeated sentence is a duplicated fact or a stale copy.
+    const trimmed = line.trim();
+    if (trimmed.length >= 20 && !trimmed.startsWith('|') && !trimmed.startsWith('- [') && !/^[#>`]/.test(trimmed)) {
+      lineOccurrences.set(trimmed, (lineOccurrences.get(trimmed) || 0) + 1);
     }
   }
 
@@ -393,7 +406,34 @@ export function lintProgressDocument(content) {
     );
   }
 
-  const hasFrontmatter = /^---\r?\n[\s\S]*?\r?\n---/.test(String(content ?? ''));
+  // ── brevity budget: the file is a status snapshot, not a report or a log ────────────────────────
+  const bytes = Buffer.byteLength(text, 'utf-8');
+  const contentLines = lines.filter((line) => line.trim() !== '').length;
+  const lastSectionLines = lastSectionStart >= 0 ? lines.slice(lastSectionStart + 1).filter((line) => line.trim() !== '').length : 0;
+
+  if (contentLines > 400 || bytes > 60000) {
+    errors.push(
+      `the document is ${contentLines} lines / ${bytes} bytes — far past what a status snapshot needs. Compress it to facts (chosen values, thresholds, blockers, one-line results) and write it again.`
+    );
+  } else if (contentLines > 150 || bytes > 12000) {
+    warnings.push(
+      `the document is ${contentLines} lines / ${bytes} bytes; the budget is ~150 lines / ~12 KB. Cut the analysis down to the facts a human needs to see the state of the work.`
+    );
+  }
+
+  if (lastSectionLines > 40) {
+    warnings.push(
+      `the last section (Key Findings / Notes) holds ${lastSectionLines} lines; its budget is ~40. Replace studies, benchmark tables, per-run logs and method/timing notes with one-line facts.`
+    );
+  }
+
+  const echoed = [...lineOccurrences.entries()].filter(([, count]) => count > 1);
+  if (echoed.length > 0) {
+    const examples = echoed.slice(0, 3).map(([line, count]) => `"${line.slice(0, 60)}${line.length > 60 ? '…' : ''}" ×${count}`).join('; ');
+    warnings.push(`the same sentence appears more than once (${examples}); state each fact once, in one section.`);
+  }
+
+  const hasFrontmatter = /^---\r?\n[\s\S]*?\r?\n---/.test(text);
   const parsed = parseProgress(content);
 
   if (!hasFrontmatter) {
@@ -415,7 +455,7 @@ export function lintProgressDocument(content) {
     );
   }
 
-  return { errors, warnings, h1, sections };
+  return { errors, warnings, h1, sections, lines: contentLines, bytes, lastSectionLines };
 }
 
 /**
@@ -853,10 +893,18 @@ ${header}
    STRICT NEGATIVE CONSTRAINTS:
    - NEVER create extra H1 (#) or H2 (##) headings. Do NOT invent custom sections like "## COMPARISON...", "## BEST CONFIG...", or "## EVIDENCE...".
    - NEVER duplicate sections or keep stale history (e.g. NEVER write "## Current Activity (Old)").
-   - ALL findings, ablation results, comparison tables, metrics, and investigation notes MUST be placed under "## Key Findings / Notes" using H3 (###) or tables.
+   - "## Key Findings / Notes" carries ONLY the decision-grade residue: chosen parameter values, thresholds, file paths, blockers, and one-line results. Do NOT paste benchmark studies, sweep matrices, ablation tables, per-run logs, method descriptions, machine specs, CPU/wall-clock timings, or tool inventories into this file — that analysis belongs in the conversation and its artifacts, not in a status snapshot.
    - Always overwrite the file cleanly to reflect the latest state; do not let the document grow into an unorganized scratchpad.
 
 ${rule7}
+
+8. BREVITY BUDGET — FACTS, NOT PROSE (STRICT):
+   - WHAT THIS FILE IS: a status snapshot a human glances at while you work — NOT a report, a log, or a record of your method. Budgets: ~150 lines and ~12 KB for the whole document, ~40 lines for the last section. Going over returns a warning from the write tool; treat it as a required correction.
+   - RECORD QUANTITIES AS BARE FACTS, never as prose: \`số worker song song = 6\`, \`min_sl_distance_pct = 0.2\`, \`run 5529 (1 năm) = 163 lệnh, +110,8%, DD 11,82%\`. Do NOT explain how you measured it, why you chose it, what you tried first, or what the numbers imply: the value is the whole message.
+   - NEVER write: resolved hypotheses, reasoning steps, benchmark/ablation studies, per-run logs, tool or scratch-file inventories, machine specs, timing benchmarks, or anything already visible in the conversation.
+   - SAY EACH FACT ONCE, in the most specific section. Do not repeat the same value in the frontmatter, the checklist, and the notes.
+   - PRUNE ON EVERY WRITE: delete superseded values, resolved questions, detail of finished steps, and stale tables. A rewrite that only adds text is a wrong rewrite. If a fact is still needed but large, keep one line that names the artifact (file, run id) holding the detail.
+   - SHAPE: \`key = value\` lines for settings, one table for repeating tuples (run → metrics), short bullets elsewhere. No prose paragraphs anywhere in the document.
 
 ## TEMPLATE:
 ---
@@ -882,7 +930,7 @@ current_activity: "Running test suites"
 <Planned immediate actions>
 
 ## Key Findings / Notes
-<Important takeaways, metrics, tables, or blocker alerts. All detailed findings MUST be placed here as subsections or tables.>
+<Decision-grade residue only: chosen values, thresholds, file paths, blockers, one-line results — no studies, no logs, no prose>
 
 `;
         }
