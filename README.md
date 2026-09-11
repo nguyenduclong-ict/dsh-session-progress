@@ -4,136 +4,69 @@
 
 ---
 
-## 1. Purpose & Overview
+## 1. Tools
 
-<p align="center">
-  <img src="assets/preview.png" alt="Session Progress Drawer Preview" width="800" />
-</p>
+The plugin gives the Agent two tools for its session progress file — a Markdown document kept in the OS temp directory while it works. The injected prompt requires every create, refresh, and rewrite to go through these tools.
 
-<p align="center">
-  <img src="assets/composer-button.png" alt="Composer Toolbar Progress Button & Tooltip Preview" width="800" />
-</p>
+### `session_progress_write`
 
-**dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
+Replaces the **entire** progress document with `content`.
 
-In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs. 
+- `content` (required, string) — the **complete** Markdown document: YAML frontmatter (`progress`, `status`, `current_activity`) followed by the five canonical sections (Overview, Checklist, Current Activity, Next Steps, Key Findings / Notes), written in the conversation's language.
+- No anchor, no partial edit, no append: the whole file is replaced **atomically** (temp file + rename), so a stale copy can never survive underneath and a reader never sees a half-written document.
+- The document is **refused** (nothing is written) when it repeats a level-1 title or repeats any `##` section heading — the exact shape of a duplicated/concatenated document.
+- Soft **warnings** (the write still succeeds) cover a missing frontmatter block or missing keys, a missing level-1 title, fewer than five sections, and a frontmatter percentage far from the checklist-derived value.
+- **Result** — `fileName`, `bytes`, `replaced`, `repaired` (the previous file was duplicated and has now been replaced), `percent`, `status`, `currentActivity`, the checklist counts, the detected section names, and `warnings`.
 
-**dsh-session-progress** solves this by:
-- **System Prompt Injection**: Automatically injects prompt instructions that direct the AI Agent to maintain a structured Markdown progress file in the OS temporary directory (`os.tmpdir()`).
-- **Structured YAML Frontmatter & Dual-Engine % Calculation**:
-  - Automatically extracts progress percentage, execution status (`starting`, `in_progress`, `blocked`, `completed`), and the active step from the file's YAML frontmatter.
-  - Automatically falls back to parsing standard Markdown task checklists (`- [x]`, `- [/]`, `- [ ]`) if frontmatter is omitted.
-- **Adaptive Language Alignment**: Instructs the Agent to match the conversation language (e.g., Vietnamese, English) for all section headers, checklists, and task summaries while maintaining English YAML keys.
-- **Single-Objective Rewrite on New Task**: The injected prompt states that one progress file tracks exactly ONE active objective. When a new request starts a different objective and the previous work is already finished (delivered, `100%`, `completed`, confirmed by the user, or simply abandoned), the Agent must **rewrite the whole file from scratch** for the new task instead of appending new checklist items under the old ones. Only a genuine refinement/continuation of the same objective updates the file in place.
-- **Dedicated Whole-File Writer Tool (`session_progress_write`)**: The plugin registers a tool that always **replaces the entire progress file** — no anchor, no partial edit, no append — and refuses any document that repeats a level-1 title or a section heading, so a stale copy of the previous document can never survive underneath the new one. Every call returns the byte count, the parsed percentage, the checklist counts, and any warnings, so the Agent can verify the write without re-reading the file. This closes the failure mode where an anchored edit whose anchor covered only the YAML frontmatter left the whole previous document appended below the new one.
-- **Verbatim Reader Tool (`session_progress_read`) + Withheld Path**: The Agent reads the document through a companion tool that returns the file **verbatim** together with the parsed percentage, status, checklist counts, section names, and a `corrupted` flag (a repeated title or section heading). The file's **path is no longer injected into the system prompt and is not returned by any tool** — so the model cannot address the file with a generic `read` / `write` / `edit` at all, which makes the duplication failure mode structurally impossible rather than merely forbidden. If the tool service is unavailable, the prompt automatically falls back to naming the path and demanding a whole-file write.
-- **Composer Toolbar Live Button & Activity Tooltip**: Mounts directly into DSH's composer input toolbar (adjacent to the Model Selector & Context Meter), featuring a sleek circular SVG progress ring, real-time percentage badge, and an interactive popover showing the active task.
-- **Per-Session Toggle Control & Interactive Popover**: Toggle progress tracking on or off for individual sessions via an interactive switch in the hover popover or side drawer. Disabling halts prompt injection to conserve context tokens and dims the toolbar button to `OFF`. Settings are persistently remembered across app restarts.
-- **Hybrid Responsive Display (Split View & Modal Drawer)**: Dynamically adapts to your workspace layout:
-  - **Large Screens (≥ 960px)**: Operates as a seamless side-by-side **Split View** (contracts the main workspace frame by 420px without dark backdrops), allowing full reading and interaction with session conversations and input composer while monitoring live progress.
-  - **Compact Screens (< 960px)**: Automatically switches to a traditional **Slide-over Modal Drawer** with backdrop overlay to preserve compact workspace readability.
-  - Quick action buttons to open the raw file in the OS default editor (VS Code, Notepad), trigger instant refresh, or close via `✕` / `Esc` / toolbar toggle.
+### `session_progress_read`
+
+Returns the current document **verbatim**.
+
+- No arguments. Returns `content` plus `exists`, `fileName`, `bytes`, `percent`, `status`, `currentActivity`, the checklist counts, `sections`, `warnings`, and `corrupted`.
+- `corrupted: true` means the file repeats a level-1 title or a section heading; the result then tells the Agent to rewrite it with `session_progress_write` using the single most complete document.
+- When no file exists yet it answers `exists: false` instead of erroring, and never creates one as a side effect.
+
+### Why the file path is withheld
+
+Neither tool returns the file path and the injected prompt never names it, so the Agent has no handle for a generic `read` / `write` / `edit` on the progress file — the failure mode where a partial anchored edit left two concatenated documents becomes structurally impossible instead of merely forbidden. The path stays visible in the plugin's UI drawer, which can also open the file in your editor. If the tool service is unavailable, the prompt falls back to naming the path and demanding a whole-file write.
 
 ---
 
-## 2. Installation Guide
+## 2. Installation
 
-### For DSH Desktop
+### DSH Desktop
 
-#### Windows (PowerShell)
+**Windows (PowerShell)**
 ```powershell
 cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
 & "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-#### macOS (Terminal)
+**macOS (Terminal)**
 ```bash
 cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
 "$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-#### Linux (Terminal)
+**Linux (Terminal)**
 ```bash
 cd "$HOME/.config/dsh-desktop/harness/profiles/web"
 "$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-> **Note**: Restart **DSH Desktop** after installation to activate the plugin.
+> **Note**: restart **DSH Desktop** after installation to activate the plugin.
 
----
-
-### For DSH CLI (Standalone)
-
-Run the following command in your terminal:
+### DSH CLI
 
 ```bash
 dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
 
-Or install directly within your Cordis workspace profile:
+Or install directly inside your Cordis workspace profile:
 
 ```bash
 pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
-
----
-
-## 3. Sample Markdown Structure
-
-```markdown
----
-progress: 65%
-status: in_progress
-current_activity: "Running test suites"
----
-
-# Session Progress: <Goal Title>
-
-## Overview
-<Brief summary of session objective and current status>
-
-## Checklist
-- [x] Step 1 completed
-- [/] Step 2 currently executing
-- [ ] Step 3 pending
-
-## Current Activity
-<Details of what is currently executing>
-
-## Next Steps
-<Planned immediate actions>
-
-## Key Findings / Notes
-<Important takeaways, metrics, or blocker alerts>
-```
-
----
-
-## 4. Progress Tools
-
-The plugin registers two model-facing tools, so the Agent never touches the raw file — and cannot even address it, because its path is withheld everywhere.
-
-### `session_progress_write`
-
-- `content` (required, string) — the **complete** Markdown document: YAML frontmatter plus the five canonical sections. It fully replaces the file.
-- The write is **atomic** (temp file + rename), so a reader never sees a half-written document.
-- The document is **refused** (nothing is written) when it repeats a level-1 title or repeats any `##` section heading — the exact shape a concatenated/duplicated document has.
-- Soft **warnings** (write still succeeds) cover a missing frontmatter block or missing `progress` / `status` / `current_activity` keys, a missing level-1 title, fewer than five sections, and a frontmatter percentage far from the checklist-derived value.
-- **Result** — `fileName`, `bytes`, `replaced`, `repaired` (the previous file was duplicated and has now been replaced), `percent`, `status`, `currentActivity`, the checklist counts, the detected section names, and `warnings`.
-
-### `session_progress_read`
-
-- Takes no arguments and returns the document **verbatim** (`content`), plus `exists`, `fileName`, `bytes`, `percent`, `status`, `currentActivity`, the checklist counts, `sections`, `warnings`, and `corrupted`.
-- `corrupted: true` means the file repeats a level-1 title or a section heading; the rendered result appends a trailer telling the Agent to rewrite the file with `session_progress_write` using the single most complete document.
-- When no file exists yet it answers `exists: false` instead of erroring, and never creates one as a side effect.
-
-### Withheld path (why)
-
-The system prompt names **no path** and neither tool returns one, so the Agent has no handle for a generic `read` / `write` / `edit` on the progress file. That is what makes the old duplication failure mode structurally impossible instead of merely forbidden. The human-facing path stays visible in the UI drawer, which also offers an *open in editor* action. If the `tools` service is unavailable, the injected prompt automatically switches to a **fallback mode** that names the path and demands a whole-file `write` (never an anchored edit), so a session can never lose progress tracking.
-
-### Registration note
-
-Plugins cannot rely on `@deepseek-ai/dsh-tools` being resolvable from a DSH profile, so both tools are registered as plain registry definitions with raw JSON Schema and validate their own arguments — this plugin still has **zero runtime dependencies**.
 
 ---
 
