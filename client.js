@@ -18,55 +18,71 @@ window.__ModuleLoader__.load({
           --dsh-drawer-top: 40px;
         }
 
-        /* --- Compact Floating Progress Button at Bottom-Right (Vị trí khoanh vàng) --- */
+        /* --- Composer Trailing Toolbar Progress Button --- */
         .dsh-session-progress-button {
-          position: fixed;
-          bottom: 5px;
-          right: 14px;
-          z-index: 990;
-          height: 22px;
-          border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.18));
-          border-radius: 11px;
-          background: rgba(24, 24, 28, 0.95);
-          backdrop-filter: blur(8px);
-          color: var(--dsw-alias-label-primary, #f4f4f5);
+          position: relative;
+          height: 28px;
+          border: none;
+          border-radius: 999px;
+          background: transparent;
+          color: var(--dsw-alias-label-secondary, #a1a1aa);
           font-family: var(--dsw-font-family, system-ui, sans-serif);
           cursor: pointer;
           display: none; /* Only visible when a valid progress file exists */
           align-items: center;
-          gap: 5px;
+          gap: 6px;
           padding: 0 8px;
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 600;
-          line-height: 1;
+          line-height: 20px;
           user-select: none;
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+          flex: none;
+          transition: all 0.15s ease;
+          outline: none;
         }
 
         .dsh-session-progress-button:hover {
-          background: rgba(38, 38, 46, 0.98);
-          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.4));
-          transform: translateY(-1px);
-          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+          color: var(--dsw-alias-label-primary, #ffffff);
         }
 
         .dsh-session-progress-button:active {
-          transform: translateY(0) scale(0.96);
+          transform: scale(0.96);
         }
 
         body.dsh-drawer-open .dsh-session-progress-button {
-          opacity: 0;
-          pointer-events: none;
+          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.12));
+          color: var(--dsw-alias-label-primary, #ffffff);
         }
 
-        .dsh-progress-icon {
-          font-size: 12px;
-          line-height: 1;
+        /* SVG Circular Progress Ring */
+        .dsh-progress-ring {
+          flex: none;
+          display: block;
+        }
+
+        .dsh-progress-ring-track {
+          fill: none;
+          stroke: var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.15));
+          stroke-width: 2;
+        }
+
+        .dsh-progress-ring-fill {
+          fill: none;
+          stroke: #60a5fa;
+          stroke-width: 2;
+          stroke-linecap: round;
+          transform-origin: 7px 7px;
+          transform: rotate(-90deg);
+          transition: stroke-dashoffset 0.35s ease, stroke 0.35s ease;
+        }
+
+        .dsh-progress-ring-fill.done {
+          stroke: #4ade80;
         }
 
         .dsh-progress-pill {
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 600;
           color: #60a5fa;
           line-height: 1;
@@ -1462,7 +1478,7 @@ window.__ModuleLoader__.load({
       document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
         .forEach(el => el.remove());
 
-      let btn = document.querySelector('body > .dsh-session-progress-button');
+      let btn = document.querySelector('.dsh-session-progress-button');
       if (!hasFile) {
         if (btn) btn.style.display = 'none';
         return;
@@ -1470,11 +1486,36 @@ window.__ModuleLoader__.load({
 
       if (!btn) {
         btn = createProgressButton();
+      }
+
+      // Mount into composer trailing toolbar (beside ContextMeter and Model selector)
+      const trailing = document.querySelector('[class*="trailing"]');
+      if (trailing) {
+        const contextMeter = trailing.querySelector('[class*="ContextMeter"], [class*="track"]')?.closest('span')
+                          || trailing.querySelector('button[aria-haspopup="dialog"]')
+                          || trailing.querySelector('[class*="primary"]');
+        if (btn.parentNode !== trailing) {
+          if (contextMeter && contextMeter.parentNode === trailing) {
+            trailing.insertBefore(btn, contextMeter);
+          } else {
+            trailing.appendChild(btn);
+          }
+        }
+      } else if (!btn.parentNode) {
         document.body.appendChild(btn);
       }
 
       btn.style.display = 'inline-flex';
       btn.removeAttribute('title'); // Prevent native OS tooltip overlapping the custom UI
+
+      const ringFill = btn.querySelector('.dsh-progress-ring-fill');
+      const circumference = 34.56;
+      const offset = circumference * (1 - Math.min(100, Math.max(0, pct)) / 100);
+      if (ringFill) {
+        ringFill.setAttribute('stroke-dashoffset', String(offset));
+        if (pct === 100) ringFill.classList.add('done');
+        else ringFill.classList.remove('done');
+      }
 
       const pill = btn.querySelector('.dsh-progress-pill');
       if (pill) {
@@ -1528,7 +1569,7 @@ window.__ModuleLoader__.load({
 
     // --- Native Slot Handler: Do NOT render on Title Bar ---
     function SessionProgressHeaderAction() {
-      // User requested moving progress button to bottom-right (no titlebar button)
+      // User requested moving progress button to composer toolbar
       return null;
     }
 
@@ -1538,9 +1579,17 @@ window.__ModuleLoader__.load({
       btn.type = 'button';
       btn.className = 'dsh-session-progress-button';
       btn.setAttribute('aria-label', `Session Progress: ${latestPercent}%`);
+
+      const circumference = 34.56;
+      const offset = circumference * (1 - Math.min(100, Math.max(0, latestPercent)) / 100);
+      const isDone = latestPercent === 100;
+
       btn.innerHTML = `
-        <span class="dsh-progress-icon">📋</span>
-        <span class="dsh-progress-pill ${latestPercent === 100 ? 'done' : ''}">${latestPercent}%</span>
+        <svg class="dsh-progress-ring" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">
+          <circle class="dsh-progress-ring-track" cx="7" cy="7" r="5.5"></circle>
+          <circle class="dsh-progress-ring-fill ${isDone ? 'done' : ''}" cx="7" cy="7" r="5.5" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle>
+        </svg>
+        <span class="dsh-progress-pill ${isDone ? 'done' : ''}">${latestPercent}%</span>
         <div class="dsh-progress-tooltip" id="dsh-progress-btn-tooltip"></div>
       `;
       btn.addEventListener('click', (e) => {

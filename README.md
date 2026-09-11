@@ -10,6 +10,10 @@
   <img src="assets/preview.png" alt="Session Progress Drawer Preview" width="800" />
 </p>
 
+<p align="center">
+  <img src="assets/composer-button.png" alt="Composer Toolbar Progress Button & Tooltip Preview" width="800" />
+</p>
+
 **dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
 
 In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs. 
@@ -20,7 +24,7 @@ In long-running or complex agentic sessions, it is often challenging for users t
   - Automatically extracts progress percentage, execution status (`starting`, `in_progress`, `blocked`, `completed`), and the active step from the file's YAML frontmatter.
   - Automatically falls back to parsing standard Markdown task checklists (`- [x]`, `- [/]`, `- [ ]`) if frontmatter is omitted.
 - **Adaptive Language Alignment**: Instructs the Agent to match the conversation language (e.g., Vietnamese, English) for all section headers, checklists, and task summaries while maintaining English YAML keys.
-- **Top Header Live Button**: Mounts directly into DSH's native header slot (`conversation.session.header.utilities`) adjacent to the *Session log* button, showing a live percentage pill badge (`📋 Progress XX%`).
+- **Composer Toolbar Live Button & Activity Tooltip**: Mounts directly into DSH's composer input toolbar (adjacent to the Model Selector & Context Meter), featuring a sleek circular SVG progress ring, real-time percentage badge, and an interactive popover showing the active task.
 - **Slide-over Side Drawer**: Opens a smooth 440px right-side panel featuring:
   - A visual gradient progress bar and active status indicators.
   - Formatted Markdown viewer with rendered checkboxes and highlighted sections.

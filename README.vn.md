@@ -10,6 +10,10 @@
   <img src="assets/preview.png" alt="Giao diện Slide-over Drawer của dsh-session-progress" width="800" />
 </p>
 
+<p align="center">
+  <img src="assets/composer-button.png" alt="Nút tiến độ trên thanh Input và Tooltip tóm tắt" width="800" />
+</p>
+
 **dsh-session-progress** là plugin theo dõi tiến độ công việc và phiên làm việc theo thời gian thực dành cho **DeepSeek Harness (DSH / DSH Desktop)**.
 
 Trong các phiên làm việc dài hoặc xử lý chuỗi tác vụ phức tạp, người dùng thường gặp khó khăn trong việc nắm bắt tiến độ tổng thể, các đầu việc đã hoàn thành hay công việc đang chạy nếu chỉ nhìn vào luồng chat dài.
@@ -21,7 +25,7 @@ Trong các phiên làm việc dài hoặc xử lý chuỗi tác vụ phức tạ
   - Đọc và bóc tách dữ liệu có cấu trúc ở đầu file (`progress: XX%`, `status: in_progress`, `current_activity: "..."`).
   - Tự động fallback đếm số lượng checklist Markdown (`- [x]`, `- [/]`, `- [ ]`) để tính tỷ lệ hoàn thành % nếu Agent quên khai báo số.
 - **Tự động thích ứng ngôn ngữ (Language Alignment)**: Nếu bạn giao tiếp bằng tiếng Việt, Agent sẽ tự động viết toàn bộ tiêu đề (Tổng quan, Checklist, Hoạt động hiện tại, v.v.) và nội dung công việc bằng tiếng Việt; nếu chat bằng tiếng Anh sẽ tự động viết bằng tiếng Anh.
-- **Nút tiến độ trực quan trên Top Header**: Tích hợp trực tiếp vào thanh điều hướng trên cùng, nằm ngay phía trước nút *Session log*, hiển thị số `%` và đổi sang màu xanh lá khi đạt 100%.
+- **Nút tiến độ trực quan trên thanh Input & Tooltip tóm tắt**: Tích hợp trực tiếp vào thanh công cụ của ô nhập liệu (cạnh nút chọn Model và Context Meter), với vòng tròn SVG tiến độ, nhãn phần trăm thời gian thực và tooltip tóm tắt công việc đang chạy.
 - **Ngăn kéo trượt Slide-over Side Drawer**: Click vào nút trên Header sẽ trượt ra một bảng thông tin 440px từ cạnh phải:
   - Thanh tiến độ đồ họa trực quan (Progress bar).
   - Trình đọc Markdown tích hợp sẵn định dạng checkbox, đầu việc rõ ràng.
