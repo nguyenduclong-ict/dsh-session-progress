@@ -324,6 +324,256 @@ export function parseProgress(content) {
   };
 }
 
+// ───────────────────────── Whole-file progress writer tool ─────────────────────────
+//
+// History: progress files used to be updated with an anchored `edit` whose `old_string` covered only
+// the YAML frontmatter while `new_string` carried a complete new document. The anchored edit replaced
+// just the frontmatter, so the previous document survived below the new one and the file ended up
+// holding TWO concatenated documents. This tool removes that failure mode entirely: it has no anchor,
+// it always replaces the whole file, and it refuses to persist a document that already looks doubled.
+
+export const PROGRESS_WRITE_TOOL_NAME = 'session_progress_write';
+
+/**
+ * Inspect a candidate progress document for structural corruption.
+ *
+ * Language agnostic by design: the canonical sections are localized, so duplication is detected from
+ * repeated heading text (and repeated level-1 titles) instead of a fixed section vocabulary.
+ *
+ * @param {string} content - the complete Markdown document.
+ * @returns {{ errors: string[], warnings: string[], h1: string[], sections: string[] }}
+ */
+export function lintProgressDocument(content) {
+  const errors = [];
+  const warnings = [];
+  const h1 = [];
+  const sections = [];
+  const sectionCounts = new Map();
+
+  for (const line of String(content ?? '').split(/\r?\n/)) {
+    const titleMatch = line.match(/^#\s+(\S.*)$/);
+    if (titleMatch) {
+      h1.push(titleMatch[1].trim());
+      continue;
+    }
+    const sectionMatch = line.match(/^##\s+(\S.*)$/);
+    if (sectionMatch) {
+      const raw = sectionMatch[1].replace(/[*_`\s]+$/, '').trim();
+      if (!raw) continue;
+      sections.push(raw);
+      const key = raw.toLowerCase();
+      sectionCounts.set(key, (sectionCounts.get(key) || 0) + 1);
+    }
+  }
+
+  if (h1.length > 1) {
+    errors.push(
+      `the document has ${h1.length} level-1 titles (${h1.map((t) => `"${t}"`).join(', ')}) — that is two documents concatenated into one file. Send exactly ONE document.`
+    );
+  }
+
+  const repeated = [...sectionCounts.entries()].filter(([, count]) => count > 1);
+  if (repeated.length > 0) {
+    errors.push(
+      `the document repeats section heading(s) ${repeated.map(([name, count]) => `"${name}" ×${count}`).join(', ')} — a duplicated or stale copy of the document is present. Send exactly ONE document containing each section once.`
+    );
+  }
+
+  const hasFrontmatter = /^---\r?\n[\s\S]*?\r?\n---/.test(String(content ?? ''));
+  const parsed = parseProgress(content);
+
+  if (!hasFrontmatter) {
+    warnings.push('no YAML frontmatter block was found at the top of the document; it should carry `progress`, `status`, and `current_activity`.');
+  } else {
+    const frontmatter = parsed.frontmatter || {};
+    if (frontmatter.progress === undefined) warnings.push('frontmatter has no `progress` key.');
+    if (!frontmatter.status) warnings.push('frontmatter has no `status` key.');
+    if (!frontmatter.current_activity) warnings.push('frontmatter has no `current_activity` key.');
+  }
+
+  if (h1.length === 0) warnings.push('no level-1 title was found; the document should start with `# <Goal Title>`.');
+  if (sections.length < 5) {
+    warnings.push(`only ${sections.length} level-2 section(s) were found; the canonical document carries 5.`);
+  }
+  if (parsed.explicitPercent !== null && parsed.checklistPercent !== null && Math.abs(parsed.explicitPercent - parsed.checklistPercent) > 25) {
+    warnings.push(
+      `frontmatter progress (${parsed.explicitPercent}%) is far from the checklist-derived value (${parsed.checklistPercent}%); recheck the numbers or the checkboxes.`
+    );
+  }
+
+  return { errors, warnings, h1, sections };
+}
+
+/**
+ * Replace a file atomically: write a sibling temp file, then rename over the target.
+ * @param {string} filePath - destination file.
+ * @param {string} content - complete replacement content.
+ */
+function writeFileAtomically(filePath, content) {
+  const tempPath = `${filePath}.tmp-${randomUUID()}`;
+  try {
+    fs.writeFileSync(tempPath, content, 'utf-8');
+    fs.renameSync(tempPath, filePath);
+  } catch (e) {
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch (cleanupError) {}
+    throw e;
+  }
+}
+
+/**
+ * Render the tool result the model reads back after a write.
+ * @param {object} value - the structured tool result.
+ * @returns {string} a one-paragraph summary.
+ */
+export function renderProgressWriteResult(value) {
+  const parts = [
+    `Session progress replaced in full (${value.bytes} bytes written to ${value.filePath}).`,
+    `${value.percent}% · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}.`,
+    `${value.tasksTotal} checklist item(s): ${value.tasksDone} done, ${value.tasksInProgress} in progress, ${value.tasksPending} pending.`
+  ];
+  if (value.repaired) {
+    parts.push('The previous file contained duplicated content and has now been replaced by this single clean document.');
+  }
+  if (Array.isArray(value.warnings) && value.warnings.length > 0) {
+    parts.push(`Warnings: ${value.warnings.join(' ')}`);
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Build the `session_progress_write` tool definition.
+ *
+ * Registered as a plain registry definition (raw JSON Schema), matching how first-party plugins that
+ * cannot import `@deepseek-ai/dsh-tools` register tools, so this plugin keeps zero runtime deps.
+ *
+ * @returns {object} a registry-ready tool definition.
+ */
+export function buildProgressWriteTool() {
+  return {
+    name: PROGRESS_WRITE_TOOL_NAME,
+    description:
+      'Replace the ENTIRE session progress file with `content`. This tool always overwrites the whole document — there is no anchor, no partial edit, and no append, so it can never leave a stale or duplicated copy behind. ' +
+      'Send the COMPLETE document on every call: YAML frontmatter (`progress`, `status`, `current_activity`) followed by the five canonical sections (Overview, Checklist, Current Activity, Next Steps, Key Findings / Notes), localized to the conversation language. ' +
+      'Use this tool for every progress update instead of anchored edits. When the user starts a different objective and the previous one is finished, send a brand-new document for the new task only.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['content'],
+      properties: {
+        content: {
+          type: 'string',
+          description:
+            'The COMPLETE progress document in Markdown: YAML frontmatter followed by the five canonical sections. This value fully replaces the file.'
+        }
+      }
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'filePath',
+          'bytes',
+          'replaced',
+          'repaired',
+          'percent',
+          'status',
+          'tasksTotal',
+          'tasksDone',
+          'tasksInProgress',
+          'tasksPending',
+          'sections',
+          'warnings'
+        ],
+        properties: {
+          filePath: { type: 'string' },
+          bytes: { type: 'integer' },
+          replaced: { type: 'boolean' },
+          repaired: { type: 'boolean' },
+          percent: { type: 'integer' },
+          status: { type: 'string' },
+          currentActivity: { type: 'string' },
+          tasksTotal: { type: 'integer' },
+          tasksDone: { type: 'integer' },
+          tasksInProgress: { type: 'integer' },
+          tasksPending: { type: 'integer' },
+          sections: { type: 'array', items: { type: 'string' } },
+          warnings: { type: 'array', items: { type: 'string' } }
+        }
+      },
+      render: (_args, value) => [{ type: 'text', text: renderProgressWriteResult(value) }]
+    },
+    presentCall: (args) => ({
+      card: 'generic',
+      title: 'Write session progress',
+      kind: 'other',
+      rawInput: typeof args?.content === 'string' ? args.content : ''
+    }),
+    execute(args, exec) {
+      const content = typeof args?.content === 'string' ? args.content : '';
+      if (!content.trim()) {
+        throw new Error(`${PROGRESS_WRITE_TOOL_NAME} requires a non-empty \`content\` string holding the complete document.`);
+      }
+
+      const session = exec?.agent?.session;
+      const sessionId = session?.header?.id || session?.id || latestActiveSessionId;
+      if (!sessionId || sessionId === 'default') {
+        throw new Error(`${PROGRESS_WRITE_TOOL_NAME} requires an owning agent session.`);
+      }
+
+      const lint = lintProgressDocument(content);
+      if (lint.errors.length > 0) {
+        throw new Error(
+          `${PROGRESS_WRITE_TOOL_NAME} rejected this document, so nothing was written:\n- ${lint.errors.join('\n- ')}\nRewrite the file as ONE complete document and call the tool again.`
+        );
+      }
+
+      const record = getOrCreateSessionProgress(sessionId);
+      let previous = '';
+      let previousWasCorrupted = false;
+      try {
+        if (record?.filePath && fs.existsSync(record.filePath)) {
+          previous = fs.readFileSync(record.filePath, 'utf-8');
+          previousWasCorrupted = lintProgressDocument(previous).errors.length > 0;
+        }
+      } catch (e) {
+        previous = '';
+      }
+
+      if (!record?.filePath) {
+        throw new Error(`${PROGRESS_WRITE_TOOL_NAME} could not resolve a progress file path for session ${sessionId}.`);
+      }
+
+      writeFileAtomically(record.filePath, content);
+      record.lastUpdated = Date.now();
+
+      const parsed = parseProgress(content);
+      const warnings = [...lint.warnings];
+      if (isSessionDisabled(sessionId)) {
+        warnings.push('progress tracking is currently switched OFF for this session, so the UI will not surface this update.');
+      }
+
+      return {
+        filePath: record.filePath,
+        bytes: Buffer.byteLength(content, 'utf-8'),
+        replaced: previous.length > 0,
+        repaired: previousWasCorrupted,
+        percent: parsed.percent,
+        status: parsed.status,
+        ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
+        tasksTotal: parsed.tasksTotal,
+        tasksDone: parsed.tasksDone,
+        tasksInProgress: parsed.tasksInProgress,
+        tasksPending: parsed.tasksPending,
+        sections: lint.sections,
+        warnings
+      };
+    }
+  };
+}
+
 /**
  * Open file in the operating system's default editor/viewer
  */
@@ -394,7 +644,7 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - \`- [ ]\` Pending milestone
 
 4. ZERO-STEP MANDATE & REAL-TIME UPDATES (STRICT & CRITICAL):
-   - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be updating this progress file.
+   - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be updating this progress file (through the \`session_progress_write\` tool — see rule 7).
    - 100% RESET TRIGGER: If the current progress is 100% or marked as completed from a prior task, you MUST IMMEDIATELY reset \`progress: 0%\` (or \`5%\`), set \`status: in_progress\`, update \`current_activity\` to describe the new task, and refresh the checklist with the new plan (see rule 5 for the required full rewrite).
    - WHY THIS IS MANDATORY: The user is actively monitoring the live progress bar on the UI. Delaying the progress update while investigating code or running commands makes the system appear frozen, stalled, or stuck at 100%.
    - Keep this file continuously updated as subtasks complete or new steps emerge throughout the session.
@@ -422,6 +672,14 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - NEVER duplicate sections or keep stale history (e.g. NEVER write "## Current Activity (Old)").
    - ALL findings, ablation results, comparison tables, metrics, and investigation notes MUST be placed under "## Key Findings / Notes" using H3 (###) or tables.
    - Always overwrite the file cleanly to reflect the latest state; do not let the document grow into an unorganized scratchpad.
+
+7. WRITE THROUGH THE \`session_progress_write\` TOOL (STRICT & CRITICAL):
+   - ALWAYS USE THE TOOL: every create, refresh, or rewrite of this file MUST go through the \`session_progress_write\` tool, passing the COMPLETE document in its \`content\` argument. That tool has no anchor — it atomically replaces the whole file, so a stale copy can never survive underneath.
+   - NEVER USE AN ANCHORED EDIT ON THIS FILE: do NOT call \`edit\` / str-replace on the progress file, and NEVER pass a whole new document as the replacement for a short anchor such as the YAML frontmatter. That replaces only the anchored fragment and leaves the previous document's title and body in place, leaving the file with TWO concatenated documents.
+   - FALLBACK: if \`session_progress_write\` is unavailable in this session, use the whole-file \`write\` tool (create or fully replace) with the complete document — still never an anchored edit.
+   - IF THE FILE IS ALREADY CORRUPTED: if the file holds more than one level-1 title or any section heading appears twice, it is corrupted. Keep only the most recent/complete document and immediately call \`session_progress_write\` with that single clean document.
+   - DOUBLED DOCUMENTS ARE REJECTED: a call that repeats a level-1 title or any section heading is refused with an explanation and nothing is written — correct the document and call again.
+   - VERIFY FROM THE RESULT: the tool answers with the byte count, the parsed percentage, the checklist counts, and any warnings. Rely on that result instead of re-reading the file.
 
 ## TEMPLATE:
 ---
@@ -455,6 +713,16 @@ current_activity: "Running test suites"
       ctx.logger?.info?.('dsh-session-progress registered systemPrompt section "session:progress"');
     } catch (e) {
       ctx.logger?.warn?.(`[dsh-session-progress] Failed to register systemPrompt section: ${e?.message || e}`);
+    }
+  });
+
+  // 2. Register the whole-file progress writer tool
+  ctx.inject(['tools'], (toolCtx) => {
+    try {
+      toolCtx.tools.register(buildProgressWriteTool());
+      ctx.logger?.info?.(`dsh-session-progress registered tool "${PROGRESS_WRITE_TOOL_NAME}"`);
+    } catch (e) {
+      ctx.logger?.warn?.(`[dsh-session-progress] Failed to register tool "${PROGRESS_WRITE_TOOL_NAME}": ${e?.message || e}`);
     }
   });
 
