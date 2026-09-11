@@ -68,41 +68,17 @@ function getOrCreateSessionProgress(sessionId) {
     }
   } catch (e) {}
 
-  // Otherwise create a fresh file with YAML frontmatter template
+  // Allocate a designated file path (DO NOT create on disk until agent writes to it)
   const fileUuid = randomUUID();
   const fileName = `dsh-progress-${safeId}-${fileUuid}.md`;
   const filePath = path.join(tmpDir, fileName);
-
-  const initialContent = `---
-progress: 0%
-status: starting
-current_activity: "Session started. Waiting for task initialization."
----
-
-# Session Progress
-## Overview
-Session started. Waiting for task initialization.
-
-## Checklist
-- [ ] Initialize task plan
-
-## Current Activity
-Idle / Preparing task execution.
-
-## Next Steps
-- Define milestones and begin task execution.
-`;
-
-  try {
-    fs.writeFileSync(filePath, initialContent, 'utf-8');
-  } catch (e) {}
 
   const record = {
     sessionId: sId,
     filePath,
     uuid: fileUuid,
     createdAt: Date.now(),
-    lastUpdated: Date.now()
+    lastUpdated: 0
   };
   sessionProgressMap.set(sId, record);
   return record;
@@ -295,8 +271,11 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - \`- [/]\` Current in-progress milestone
    - \`- [ ]\` Pending milestone
 
-4. REAL-TIME UPDATES:
-   Update this file whenever you start a new task, complete a subtask, change phases, or obtain important results using your file editing/writing tools.
+4. ZERO-STEP MANDATE & REAL-TIME UPDATES (STRICT & CRITICAL):
+   - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be updating this progress file.
+   - 100% RESET TRIGGER: If the current progress is 100% or marked as completed from a prior task, you MUST IMMEDIATELY reset \`progress: 0%\` (or \`5%\`), set \`status: in_progress\`, update \`current_activity\` to describe the new task, and refresh the checklist with the new plan.
+   - WHY THIS IS MANDATORY: The user is actively monitoring the live progress bar on the UI. Delaying the progress update while investigating code or running commands makes the system appear frozen, stalled, or stuck at 100%.
+   - Keep this file continuously updated as subtasks complete or new steps emerge throughout the session.
 
 ## TEMPLATE (ENGLISH):
 ---
@@ -349,6 +328,7 @@ current_activity: "Đang chạy bộ kiểm thử"
 
 ## Ghi chú quan trọng
 <Các phát hiện, kết quả hoặc cảnh báo quan trọng>
+
 `;
         }
       });
@@ -404,6 +384,7 @@ current_activity: "Đang chạy bộ kiểm thử"
         return res.end(JSON.stringify({
           success: true,
           found: true,
+          hasFile: true,
           sessionId: qSessionId,
           filePath: targetPath,
           fileName: path.basename(targetPath),
@@ -424,6 +405,7 @@ current_activity: "Đang chạy bộ kiểm thử"
         return res.end(JSON.stringify({
           success: false,
           found: false,
+          hasFile: false,
           error: `Failed to read progress file: ${err?.message || err}`,
           sessionId: qSessionId,
           filePath: targetPath,
@@ -436,6 +418,7 @@ current_activity: "Đang chạy bộ kiểm thử"
     return res.end(JSON.stringify({
       success: false,
       found: false,
+      hasFile: false,
       sessionId: qSessionId,
       filePath: null,
       percent: 0,

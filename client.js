@@ -18,66 +18,63 @@ window.__ModuleLoader__.load({
           --dsh-drawer-top: 40px;
         }
 
-        /* --- Header Action Button --- */
+        /* --- Compact Floating Progress Button at Bottom-Right (Vị trí khoanh vàng) --- */
         .dsh-session-progress-button {
-          border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.16));
-          min-width: 105px;
-          height: 30px;
+          position: fixed;
+          bottom: 5px;
+          right: 14px;
+          z-index: 990;
+          height: 22px;
+          border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.18));
+          border-radius: 11px;
+          background: rgba(24, 24, 28, 0.95);
+          backdrop-filter: blur(8px);
           color: var(--dsw-alias-label-primary, #f4f4f5);
           font-family: var(--dsw-font-family, system-ui, sans-serif);
           cursor: pointer;
-          background: rgba(255, 255, 255, 0.04);
-          border-radius: 16px;
-          justify-content: center;
+          display: none; /* Only visible when a valid progress file exists */
           align-items: center;
-          gap: 6px;
-          padding: 4px 11px;
-          font-size: 12px;
-          font-weight: 500;
+          gap: 5px;
+          padding: 0 8px;
+          font-size: 11px;
+          font-weight: 600;
           line-height: 1;
-          display: inline-flex;
           user-select: none;
           transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          margin-right: 8px;
-          flex-shrink: 0;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
         }
 
         .dsh-session-progress-button:hover {
-          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.1));
-          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.35));
+          background: rgba(38, 38, 46, 0.98);
+          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.4));
+          transform: translateY(-1px);
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
         }
 
         .dsh-session-progress-button:active {
-          transform: scale(0.97);
+          transform: translateY(0) scale(0.96);
+        }
+
+        body.dsh-drawer-open .dsh-session-progress-button {
+          opacity: 0;
+          pointer-events: none;
         }
 
         .dsh-progress-icon {
-          font-size: 13px;
+          font-size: 12px;
           line-height: 1;
         }
 
-        .dsh-progress-text {
-          font-weight: 500;
-        }
-
         .dsh-progress-pill {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 1px 7px;
-          border-radius: 10px;
           font-size: 11px;
           font-weight: 600;
-          background: rgba(59, 130, 246, 0.2);
           color: #60a5fa;
-          border: 1px solid rgba(59, 130, 246, 0.3);
+          line-height: 1;
           transition: all 0.3s ease;
         }
 
         .dsh-progress-pill.done {
-          background: rgba(34, 197, 94, 0.2);
           color: #4ade80;
-          border-color: rgba(34, 197, 94, 0.35);
         }
 
         /* --- Slide-over Drawer & Backdrop --- */
@@ -585,11 +582,14 @@ window.__ModuleLoader__.load({
         const res = await fetch(`/api/session-progress/content?sessionId=${encodeURIComponent(sessionId)}`);
         if (res.ok) {
           const data = await res.json();
-          latestData = data;
-          latestPercent = typeof data.percent === 'number' ? data.percent : 0;
+          const hasFile = Boolean(data && data.found && data.hasFile);
+          latestData = hasFile ? data : null;
+          latestPercent = (hasFile && typeof data.percent === 'number') ? data.percent : 0;
           notifySubscribers();
-          updateDrawerUI(data);
-          updateHeaderButtonUI(latestPercent);
+          if (hasFile) {
+            updateDrawerUI(data);
+          }
+          updateHeaderButtonUI(latestPercent, hasFile);
           return data;
         }
       } catch (err) {
@@ -943,6 +943,7 @@ window.__ModuleLoader__.load({
       updateTopOffset();
       if (sessionId) activeSessionId = sessionId;
       isDrawerOpen = true;
+      document.body.classList.add('dsh-drawer-open');
       drawerBackdrop.classList.add('open');
       drawerPanel.classList.add('open');
       fetchProgress(activeSessionId);
@@ -952,6 +953,7 @@ window.__ModuleLoader__.load({
     function closeDrawer() {
       if (!drawerPanel) return;
       isDrawerOpen = false;
+      document.body.classList.remove('dsh-drawer-open');
       drawerBackdrop.classList.remove('open');
       drawerPanel.classList.remove('open');
       startPolling(3000);
@@ -1040,24 +1042,30 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function updateHeaderButtonUI(pct) {
-      // Remove any misplaced button inside the drawer
-      document.querySelectorAll('.dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
+    function updateHeaderButtonUI(pct, hasFile) {
+      // Purge any button on titlebar, header, or inside drawer
+      document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
         .forEach(el => el.remove());
 
-      const btns = document.querySelectorAll('.dsh-session-progress-button, .dsh-task-progress-button');
-      btns.forEach((btn) => {
-        if (btn.closest('.dsh-drawer-panel')) {
-          btn.remove();
-          return;
-        }
-        const pill = btn.querySelector('.dsh-progress-pill');
-        if (pill) {
-          pill.textContent = `${pct}%`;
-          if (pct === 100) pill.classList.add('done');
-          else pill.classList.remove('done');
-        }
-      });
+      let btn = document.querySelector('body > .dsh-session-progress-button');
+      if (!hasFile) {
+        if (btn) btn.style.display = 'none';
+        return;
+      }
+
+      if (!btn) {
+        btn = createProgressButton();
+        document.body.appendChild(btn);
+      }
+
+      btn.style.display = 'inline-flex';
+      btn.title = `Session Progress: ${pct}% (Click to view details)`;
+      const pill = btn.querySelector('.dsh-progress-pill');
+      if (pill) {
+        pill.textContent = `${pct}%`;
+        if (pct === 100) pill.classList.add('done');
+        else pill.classList.remove('done');
+      }
     }
 
     function startPolling(intervalMs = 3000) {
@@ -1069,69 +1077,9 @@ window.__ModuleLoader__.load({
       }, intervalMs);
     }
 
-    // --- React Header Button Component for Slot ---
-    function SessionProgressHeaderAction(props) {
-      const sessionId = props.sessionId || resolveCurrentSessionId();
-      const [percent, setPercent] = React.useState(latestPercent);
-
-      React.useEffect(() => {
-        activeSessionId = sessionId;
-        const sub = (newPct) => {
-          setPercent(newPct);
-        };
-        subscribers.add(sub);
-        fetchProgress(sessionId);
-        return () => { subscribers.delete(sub); };
-      }, [sessionId]);
-
-      return React.createElement(
-        'button',
-        {
-          type: 'button',
-          className: 'dsh-session-progress-button',
-          title: 'View live session progress',
-          onClick: () => toggleDrawer(sessionId)
-        },
-        React.createElement('span', { className: 'dsh-progress-icon' }, '📋'),
-        React.createElement('span', { className: 'dsh-progress-text' }, 'Progress'),
-        React.createElement(
-          'span',
-          { className: `dsh-progress-pill ${percent === 100 ? 'done' : ''}` },
-          `${percent}%`
-        )
-      );
-    }
-
-    // --- Targeted DOM Detection & Fallback Injector ---
-    function findSessionLogButton() {
-      const allBtns = Array.from(document.querySelectorAll('button'));
-      return allBtns.find((b) => {
-        if (b.closest('.dsh-drawer-panel') || b.closest('.dsh-drawer-header')) return false;
-        const txt = (b.textContent || '').trim().toLowerCase();
-        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-        const cls = (b.className || '').toString().toLowerCase();
-        return txt.includes('session log') || aria.includes('session log') || cls.includes('sessionlog');
-      });
-    }
-
-    function findTopHeader() {
-      // 1. Session log button parent container
-      const sessionLogBtn = findSessionLogButton();
-      if (sessionLogBtn && sessionLogBtn.parentElement) {
-        return { container: sessionLogBtn.parentElement, refNode: sessionLogBtn };
-      }
-
-      // 2. Look for top header / utilities bar in top 60px of the window
-      const candidates = Array.from(document.querySelectorAll('header, [class*="utilities"], [class*="headerNav"], [class*="topbar"], [class*="header"]'));
-      for (const el of candidates) {
-        if (el.closest('.dsh-drawer-panel') || el.closest('.dsh-drawer-header') || el.classList.contains('dsh-drawer-header')) continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.top <= 15 && rect.bottom > 20 && rect.bottom <= 80 && rect.width > 200) {
-          const util = el.querySelector('[class*="utilities"], [class*="actions"], [class*="right"]') || el;
-          return { container: util, refNode: null };
-        }
-      }
-
+    // --- Native Slot Handler: Do NOT render on Title Bar ---
+    function SessionProgressHeaderAction() {
+      // User requested moving progress button to bottom-right (no titlebar button)
       return null;
     }
 
@@ -1140,10 +1088,9 @@ window.__ModuleLoader__.load({
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'dsh-session-progress-button';
-      btn.title = 'View live session progress';
+      btn.title = `Session Progress: ${latestPercent}% (Click to view details)`;
       btn.innerHTML = `
         <span class="dsh-progress-icon">📋</span>
-        <span class="dsh-progress-text">Progress</span>
         <span class="dsh-progress-pill ${latestPercent === 100 ? 'done' : ''}">${latestPercent}%</span>
       `;
       btn.addEventListener('click', (e) => {
@@ -1154,74 +1101,26 @@ window.__ModuleLoader__.load({
     }
 
     function ensureFallbackButton() {
-      // Remove any button accidentally placed inside drawer
-      const insideDrawer = document.querySelectorAll('.dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button');
-      insideDrawer.forEach((el) => el.remove());
+      // Remove any legacy titlebar buttons
+      document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
+        .forEach(el => el.remove());
 
-      const sessionLogBtn = findSessionLogButton();
-      let existingBtn = Array.from(document.querySelectorAll('.dsh-session-progress-button, .dsh-task-progress-button'))
-        .find((b) => !b.closest('.dsh-drawer-panel'));
-
-      if (sessionLogBtn && sessionLogBtn.parentElement) {
-        // Position immediately before Session log button
-        if (existingBtn) {
-          if (existingBtn.nextElementSibling !== sessionLogBtn || existingBtn.parentElement !== sessionLogBtn.parentElement) {
-            sessionLogBtn.parentElement.insertBefore(existingBtn, sessionLogBtn);
-          }
-          return;
-        }
-
-        const btn = createProgressButton();
-        sessionLogBtn.parentElement.insertBefore(btn, sessionLogBtn);
-        console.log('[dsh-session-progress] Injected progress button before sessionLogBtn');
-        return;
-      }
-
-      if (existingBtn) return;
-
-      // Fallback: search for top-level header bar
-      const headerTarget = findTopHeader();
-      if (headerTarget && headerTarget.container) {
-        const btn = createProgressButton();
-        if (headerTarget.refNode) {
-          headerTarget.container.insertBefore(btn, headerTarget.refNode);
-        } else {
-          headerTarget.container.appendChild(btn);
-        }
-        console.log('[dsh-session-progress] Injected fallback progress button into top header');
-      }
+      const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
+      updateHeaderButtonUI(latestPercent, hasFile);
     }
 
     // Export module apply & inject
     exports.inject = ['slots'];
     exports.apply = function(ctx) {
-      console.log('[dsh-session-progress] client plugin applying slots and observers...');
+      console.log('[dsh-session-progress] client plugin loaded with bottom-right floating pill...');
       ensureStyles();
       ensureDrawerElements();
-
-      // Register into native DSH Header slot
-      try {
-        ctx.slots.inject('conversation.session.header.utilities', () => {
-          return ctx.slots.register(
-            {
-              name: 'conversation.session.header.utilities',
-              id: 'dsh-session-progress-button',
-              priority: 0,
-              order: -10 // Render before session-log-download (order 0)
-            },
-            SessionProgressHeaderAction
-          );
-        });
-        console.log('[dsh-session-progress] registered into slot conversation.session.header.utilities');
-      } catch (err) {
-        console.warn('[dsh-session-progress] Failed to register slot, relying on DOM observer:', err);
-      }
 
       // Initial progress fetch
       fetchProgress(resolveCurrentSessionId());
       startPolling(3000);
 
-      // DOM fallback observer
+      // Observer to ensure titlebar buttons are removed and bottom-right pill state is synced
       ensureFallbackButton();
       const observer = new MutationObserver(() => {
         ensureFallbackButton();
