@@ -73,6 +73,16 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-tertiary, #71717a);
         }
 
+        .dsh-session-progress-button.icon-only {
+          padding: 0;
+          width: 28px;
+          justify-content: center;
+        }
+
+        .dsh-session-progress-button.icon-only .dsh-progress-pill {
+          display: none;
+        }
+
         body.dsh-drawer-open .dsh-session-progress-button {
           background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.12));
           color: var(--dsw-alias-label-primary, #ffffff);
@@ -216,6 +226,12 @@ window.__ModuleLoader__.load({
         .dsh-progress-tooltip-hint {
           font-size: 10.5px;
           color: var(--dsw-alias-label-tertiary, #71717a);
+          cursor: pointer;
+          transition: color 0.15s ease;
+        }
+
+        .dsh-progress-tooltip-hint:hover {
+          color: #60a5fa;
         }
 
         /* Tooltip Toggle Switch Row */
@@ -284,11 +300,11 @@ window.__ModuleLoader__.load({
         /* --- Slide-over Drawer & Backdrop --- */
         .dsh-drawer-backdrop {
           position: fixed;
-          top: var(--dsh-drawer-top, 40px);
+          top: calc(100vh - var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px))));
           left: 0;
           right: 0;
           bottom: 0;
-          height: calc(100vh - var(--dsh-drawer-top, 40px));
+          height: var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px)));
           background: rgba(0, 0, 0, 0.45);
           backdrop-filter: blur(2px);
           z-index: 9998;
@@ -304,10 +320,10 @@ window.__ModuleLoader__.load({
 
         .dsh-drawer-panel {
           position: fixed;
-          top: var(--dsh-drawer-top, 40px);
+          top: calc(100vh - var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px))));
           right: 0;
           bottom: 0;
-          height: calc(100vh - var(--dsh-drawer-top, 40px));
+          height: var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px)));
           width: var(--dsh-drawer-width, 420px);
           max-width: calc(100vw - 40px);
           background: var(--dsw-alias-bg-floating, #18181b);
@@ -326,7 +342,7 @@ window.__ModuleLoader__.load({
           transform: translateX(0);
         }
 
-        /* --- Hybrid Responsive: Desktop Split-View in [data-side="right"] vs Compact Drawer --- */
+        /* --- Hybrid Responsive: Desktop Split-View vs Compact Drawer --- */
         @media (min-width: 960px) {
           /* Desktop Split View: Disable dark overlay backdrop so user can interact with session */
           body.dsh-drawer-open .dsh-drawer-backdrop {
@@ -342,64 +358,27 @@ window.__ModuleLoader__.load({
             transition: none !important;
           }
 
-          /* Contract conversation scroll body so it does not collide with [data-side="right"] */
-          body.dsh-drawer-open [data-conversation-scroll],
-          body.dsh-drawer-open [class*="scrollBody"] {
+          /* Contract conversation body container (which holds both scrollBody and the two widthHandles)
+             so that both width handles stay centered around the chat content instead of being pushed to the middle */
+          body.dsh-drawer-open [class*="body"]:has(> [data-conversation-scroll]),
+          body.dsh-drawer-open [class*="body"]:has(> [data-width-handle]),
+          body.dsh-drawer-open ._8JRpoa_body {
+            width: calc(100% - var(--dsh-drawer-width, 420px)) !important;
             margin-right: var(--dsh-drawer-width, 420px) !important;
-            transition: margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
           }
 
-          [data-conversation-scroll],
-          [class*="scrollBody"] {
-            transition: margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+          [class*="body"]:has(> [data-conversation-scroll]),
+          [class*="body"]:has(> [data-width-handle]),
+          ._8JRpoa_body {
+            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
           }
 
-          /* Style [data-side="right"] as the dock container when drawer is open */
-          [data-side="right"] {
-            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
-          }
-
-          body.dsh-drawer-open [data-side="right"] {
-            position: absolute !important;
-            top: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-            left: auto !important;
-            width: var(--dsh-drawer-width, 420px) !important;
-            cursor: default !important;
-            pointer-events: auto !important;
-            z-index: 10 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            background: var(--dsw-alias-bg-floating, #18181b);
-            border-left: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
-            box-shadow: -6px 0 24px rgba(0, 0, 0, 0.45);
-          }
-
-          /* Hide resize handle indicator line of WidthHandle when drawer is open */
-          body.dsh-drawer-open [data-side="right"]:after {
-            display: none !important;
-          }
-
-          /* Panel styling when inside [data-side="right"] */
-          [data-side="right"] > .dsh-drawer-panel {
-            display: none;
-            position: relative !important;
-            top: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            height: 100% !important;
-            transform: none !important;
-            box-shadow: none !important;
-            border-left: none !important;
-            background: transparent !important;
-          }
-
-          body.dsh-drawer-open [data-side="right"] > .dsh-drawer-panel {
-            display: flex !important;
+          /* Also contract Trajectory split container if open */
+          body.dsh-drawer-open [class*="split"]:has(> [class*="tablePane"]) {
+            width: calc(100% - var(--dsh-drawer-width, 420px)) !important;
+            margin-right: var(--dsh-drawer-width, 420px) !important;
+            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
           }
         }
 
@@ -1429,59 +1408,107 @@ window.__ModuleLoader__.load({
     let drawerBackdrop = null;
     let drawerPanel = null;
 
+    let scrollerObserver = null;
+    function ensureScrollerObserver() {
+      const scroller = document.querySelector('[data-conversation-scroll]');
+      if (!scroller) {
+        if (scrollerObserver) {
+          try { scrollerObserver.disconnect(); } catch (e) {}
+          scrollerObserver = null;
+        }
+        return;
+      }
+      if (scrollerObserver && scrollerObserver.__target === scroller) return;
+      try {
+        if (scrollerObserver) scrollerObserver.disconnect();
+        scrollerObserver = new ResizeObserver(() => {
+          updateTopOffset();
+        });
+        scrollerObserver.__target = scroller;
+        scrollerObserver.observe(scroller);
+      } catch (e) {}
+    }
+
     /**
-     * Compute header height to position drawer cleanly below Electron window controls
+     * Compute header height and bridge --dsh-conversation-viewport-height to :root
      */
     function updateTopOffset() {
       let top = 40;
+      let vh = null;
       try {
-        const sessionLogBtn = findSessionLogButton();
-        if (sessionLogBtn) {
-          const r = sessionLogBtn.getBoundingClientRect();
-          if (r.bottom > 20 && r.bottom < 100) {
-            top = Math.round(r.bottom);
+        ensureScrollerObserver();
+        const scroller = document.querySelector('[data-conversation-scroll]');
+        if (scroller) {
+          vh = scroller.style.getPropertyValue('--dsh-conversation-viewport-height');
+          if (!vh && scroller.clientHeight > 0) {
+            vh = `${scroller.clientHeight}px`;
           }
-        } else {
-          const topBar = document.querySelector('header, [class*="headerBar"], [class*="titlebar"], [class*="headerNav"], [class*="topbar"]');
-          if (topBar) {
-            const r = topBar.getBoundingClientRect();
+          if (vh) {
+            const num = parseFloat(vh);
+            if (num > 0 && num < window.innerHeight) {
+              top = Math.max(0, Math.round(window.innerHeight - num));
+            }
+          }
+        }
+        if (!vh) {
+          const sessionLogBtn = findSessionLogButton();
+          if (sessionLogBtn) {
+            const r = sessionLogBtn.getBoundingClientRect();
             if (r.bottom > 20 && r.bottom < 100) {
               top = Math.round(r.bottom);
             }
+          } else {
+            const topBar = document.querySelector('header, [class*="headerBar"], [class*="titlebar"], [class*="headerNav"], [class*="topbar"]');
+            if (topBar) {
+              const r = topBar.getBoundingClientRect();
+              if (r.bottom > 20 && r.bottom < 100) {
+                top = Math.round(r.bottom);
+              }
+            }
           }
+          vh = `${window.innerHeight - top}px`;
         }
       } catch (e) {}
 
       document.documentElement.style.setProperty('--dsh-drawer-top', `${top}px`);
+      if (vh) {
+        document.documentElement.style.setProperty('--dsh-conversation-viewport-height', vh);
+      }
+
+      // Let CSS variables (--dsh-conversation-viewport-height and --dsh-drawer-top) drive positioning
       if (drawerPanel) {
-        drawerPanel.style.top = `${top}px`;
-        drawerPanel.style.height = `calc(100vh - ${top}px)`;
+        drawerPanel.style.removeProperty('top');
+        drawerPanel.style.removeProperty('height');
       }
       if (drawerBackdrop) {
-        drawerBackdrop.style.top = `${top}px`;
-        drawerBackdrop.style.height = `calc(100vh - ${top}px)`;
+        drawerBackdrop.style.removeProperty('top');
+        drawerBackdrop.style.removeProperty('height');
       }
       return top;
     }
 
     function syncDrawerContainer() {
       if (!drawerPanel) return;
-      const isDesktop = window.innerWidth >= 960;
-      const rightContainer = document.querySelector('[data-side="right"]');
-
-      if (isDesktop && rightContainer) {
-        if (drawerPanel.parentElement !== rightContainer) {
-          rightContainer.appendChild(drawerPanel);
-        }
-      } else {
-        if (drawerPanel.parentElement !== document.body) {
-          document.body.appendChild(drawerPanel);
-        }
+      if (drawerPanel.parentElement !== document.body) {
+        document.body.appendChild(drawerPanel);
       }
     }
 
     function ensureDrawerElements() {
-      if (drawerPanel && drawerBackdrop) return;
+      // Clean up any stale or misplaced drawer panels (e.g. from previous sessions trapped in WidthHandle)
+      const existingPanels = document.querySelectorAll('.dsh-drawer-panel');
+      existingPanels.forEach(p => {
+        if (p !== drawerPanel) p.remove();
+      });
+      const existingBackdrops = document.querySelectorAll('.dsh-drawer-backdrop');
+      existingBackdrops.forEach(b => {
+        if (b !== drawerBackdrop) b.remove();
+      });
+
+      if (drawerPanel && drawerBackdrop) {
+        syncDrawerContainer();
+        return;
+      }
 
       ensureStyles();
       updateTopOffset();
@@ -1544,10 +1571,7 @@ window.__ModuleLoader__.load({
       `;
 
       document.body.appendChild(drawerBackdrop);
-      syncDrawerContainer();
-      if (!drawerPanel.parentElement) {
-        document.body.appendChild(drawerPanel);
-      }
+      document.body.appendChild(drawerPanel);
 
       // Stop pointer events propagation to prevent WidthHandle [data-side="right"] from capturing resize drag
       const stopDrag = (e) => e.stopPropagation();
@@ -1869,12 +1893,14 @@ window.__ModuleLoader__.load({
       const activity = latestData?.currentActivity;
 
       if (!isEnabled) {
+        btn.classList.remove('icon-only');
         btn.classList.add('disabled');
         if (ringFill) {
           ringFill.setAttribute('stroke-dashoffset', String(circumference));
           ringFill.classList.remove('done');
         }
         if (pill) {
+          pill.style.display = '';
           pill.textContent = 'OFF';
           pill.classList.remove('done');
         }
@@ -1906,10 +1932,22 @@ window.__ModuleLoader__.load({
           else ringFill.classList.remove('done');
         }
 
-        if (pill) {
-          pill.textContent = `${numPct}%`;
-          if (isDone) pill.classList.add('done');
-          else pill.classList.remove('done');
+        if (hasFile) {
+          btn.classList.remove('icon-only');
+          if (pill) {
+            pill.style.display = '';
+            pill.textContent = `${numPct}%`;
+            if (isDone) pill.classList.add('done');
+            else pill.classList.remove('done');
+          }
+        } else {
+          // When there is no progress file yet, completely hide "0%" text on button
+          btn.classList.add('icon-only');
+          if (pill) {
+            pill.style.display = 'none';
+            pill.textContent = '';
+            pill.classList.remove('done');
+          }
         }
 
         if (hasFile && activity) {
@@ -1943,10 +1981,9 @@ window.__ModuleLoader__.load({
           `;
           btn.setAttribute('aria-label', `Session Progress: ${numPct}%`);
         } else {
-          // Ready / New session without progress file yet
+          // Ready / New session without progress file yet (hide 0% badge)
           tooltip.innerHTML = `
             <div class="dsh-progress-tooltip-header">
-              <span class="dsh-progress-tooltip-badge">0%</span>
               <span class="dsh-progress-tooltip-title">Ready to Track</span>
             </div>
             <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-secondary, #a1a1aa); font-size:11px;">
@@ -1959,18 +1996,32 @@ window.__ModuleLoader__.load({
               <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="Disable progress tracking for this session"></div>
             </div>
           `;
-          btn.setAttribute('aria-label', 'Session Progress: Ready (0%)');
+          btn.setAttribute('aria-label', 'Session Progress: Ready');
         }
       }
 
-      // Bind toggle switch click
-      const switchEl = tooltip.querySelector('#dsh-tooltip-toggle-switch');
-      if (switchEl) {
-        switchEl.addEventListener('click', (e) => {
+      // Stop clicks/mouse events inside tooltip from bubbling to btn (which would trigger drawer toggle)
+      tooltip.onclick = (e) => {
+        // If clicking specifically on "Click to view details" hint, toggle drawer
+        if (e.target.closest('.dsh-progress-tooltip-hint')) {
+          e.stopPropagation();
+          toggleDrawer(resolveCurrentSessionId());
+          return;
+        }
+        e.stopPropagation();
+      };
+      tooltip.onmousedown = (e) => e.stopPropagation();
+      tooltip.onpointerdown = (e) => e.stopPropagation();
+
+      // Bind toggle row click (clicking the row or the switch toggles session progress)
+      const toggleRow = tooltip.querySelector('.dsh-tooltip-toggle-row');
+      if (toggleRow) {
+        toggleRow.style.cursor = 'pointer';
+        toggleRow.onclick = (e) => {
           e.stopPropagation();
           e.preventDefault();
           toggleSessionProgress(resolveCurrentSessionId());
-        });
+        };
       }
     }
 
@@ -1997,22 +2048,28 @@ window.__ModuleLoader__.load({
       ensureStyles();
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'dsh-session-progress-button';
-      btn.setAttribute('aria-label', `Session Progress: ${latestPercent}%`);
+      const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
+      btn.className = `dsh-session-progress-button ${hasFile ? '' : 'icon-only'}`;
+      btn.setAttribute('aria-label', `Session Progress: ${hasFile ? latestPercent + '%' : 'Ready'}`);
 
       const circumference = 34.56;
       const offset = circumference * (1 - Math.min(100, Math.max(0, latestPercent)) / 100);
-      const isDone = latestPercent === 100;
+      const isDone = hasFile && latestPercent === 100;
 
       btn.innerHTML = `
         <svg class="dsh-progress-ring" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">
           <circle class="dsh-progress-ring-track" cx="7" cy="7" r="5.5"></circle>
           <circle class="dsh-progress-ring-fill ${isDone ? 'done' : ''}" cx="7" cy="7" r="5.5" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle>
         </svg>
-        <span class="dsh-progress-pill ${isDone ? 'done' : ''}">${latestPercent}%</span>
+        <span class="dsh-progress-pill ${isDone ? 'done' : ''}" style="${hasFile ? '' : 'display:none;'}">${hasFile ? latestPercent + '%' : ''}</span>
         <div class="dsh-progress-tooltip" id="dsh-progress-btn-tooltip"></div>
       `;
       btn.addEventListener('click', (e) => {
+        // If the click originated inside the tooltip/popover, do NOT toggle drawer
+        if (e.target.closest('#dsh-progress-btn-tooltip, .dsh-progress-tooltip')) {
+          e.stopPropagation();
+          return;
+        }
         e.stopPropagation();
         toggleDrawer(resolveCurrentSessionId());
       });
