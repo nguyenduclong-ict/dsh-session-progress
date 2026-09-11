@@ -20,7 +20,7 @@ In long-running or complex agentic sessions, it is often challenging for users t
 - **Slide-over Side Drawer**: Opens a smooth 440px right-side panel featuring:
   - A visual gradient progress bar and active status indicators.
   - Formatted Markdown viewer with rendered checkboxes and highlighted sections.
-  - Quick action buttons to open the raw file in the OS default editor (VS Code, Notepad), copy markdown, or trigger instant refresh.
+  - Quick action buttons to open the raw file in the OS default editor (VS Code, Notepad) or trigger instant refresh.
 
 ---
 

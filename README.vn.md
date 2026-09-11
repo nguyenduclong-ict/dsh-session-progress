@@ -21,7 +21,7 @@ Trong các phiên làm việc dài hoặc xử lý chuỗi tác vụ phức tạ
 - **Ngăn kéo trượt Slide-over Side Drawer**: Click vào nút trên Header sẽ trượt ra một bảng thông tin 440px từ cạnh phải:
   - Thanh tiến độ đồ họa trực quan (Progress bar).
   - Trình đọc Markdown tích hợp sẵn định dạng checkbox, đầu việc rõ ràng.
-  - Các nút thao tác nhanh: Mở file trên ứng dụng hệ điều hành (VS Code, Notepad), sao chép nội dung Markdown, làm mới dữ liệu.
+  - Các nút thao tác nhanh: Mở file trên ứng dụng hệ điều hành (VS Code, Notepad) ở thanh chân trang (Footer), làm mới dữ liệu và đóng bảng trượt.
 
 ---
 

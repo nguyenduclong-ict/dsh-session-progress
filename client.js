@@ -220,7 +220,8 @@ window.__ModuleLoader__.load({
           align-items: center;
           justify-content: space-between;
           margin-bottom: 12px;
-          gap: 8px;
+          gap: 10px;
+          min-width: 0;
         }
 
         .dsh-drawer-title-wrap {
@@ -228,6 +229,8 @@ window.__ModuleLoader__.load({
           align-items: center;
           gap: 8px;
           min-width: 0;
+          flex: 1;
+          overflow: hidden;
         }
 
         .dsh-drawer-title {
@@ -236,6 +239,7 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-primary, #ffffff);
           margin: 0;
           white-space: nowrap;
+          flex-shrink: 0;
         }
 
         .dsh-drawer-status-badge {
@@ -249,6 +253,7 @@ window.__ModuleLoader__.load({
           color: #60a5fa;
           border: 1px solid rgba(59, 130, 246, 0.3);
           white-space: nowrap;
+          flex-shrink: 0;
         }
 
         .dsh-drawer-status-badge.completed {
@@ -606,13 +611,13 @@ window.__ModuleLoader__.load({
 
         /* Drawer Footer */
         .dsh-drawer-footer {
-          padding: 8px 16px;
+          padding: 8px 14px;
           border-top: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
-          background: rgba(0, 0, 0, 0.2);
+          background: rgba(0, 0, 0, 0.25);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
           font-size: 11px;
           color: var(--dsw-alias-label-tertiary, #71717a);
           flex-shrink: 0;
@@ -639,10 +644,25 @@ window.__ModuleLoader__.load({
           text-decoration: underline;
         }
 
+        .dsh-drawer-footer-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+
         .dsh-drawer-updated-box {
           flex-shrink: 0;
           white-space: nowrap;
           color: var(--dsw-alias-label-tertiary, #71717a);
+          font-size: 11px;
+        }
+
+        .dsh-drawer-footer-btn {
+          padding: 3px 8px;
+          font-size: 11px;
+          height: 22px;
+          line-height: 1;
         }
 
         /* Empty state */
@@ -1084,12 +1104,6 @@ window.__ModuleLoader__.load({
               <span class="dsh-drawer-status-badge in_progress" id="dsh-drawer-status-badge">IN PROGRESS</span>
             </div>
             <div class="dsh-drawer-actions">
-              <button type="button" class="dsh-drawer-btn" id="dsh-open-file-btn" title="Open in default editor">
-                <span>↗ Open</span>
-              </button>
-              <button type="button" class="dsh-drawer-btn" id="dsh-copy-md-btn" title="Copy Markdown">
-                <span>📋 Copy</span>
-              </button>
               <button type="button" class="dsh-drawer-btn" id="dsh-refresh-btn" title="Refresh">
                 <span>⟳</span>
               </button>
@@ -1123,7 +1137,12 @@ window.__ModuleLoader__.load({
             <span style="flex-shrink:0;">📁</span>
             <span class="dsh-drawer-path-text" id="dsh-drawer-file-name">(No file active)</span>
           </div>
-          <div class="dsh-drawer-updated-box" id="dsh-drawer-last-updated">Updated: --</div>
+          <div class="dsh-drawer-footer-actions">
+            <div class="dsh-drawer-updated-box" id="dsh-drawer-last-updated">Updated: --</div>
+            <button type="button" class="dsh-drawer-btn dsh-drawer-footer-btn" id="dsh-open-file-btn" title="Open file in default editor">
+              <span>↗ Open</span>
+            </button>
+          </div>
         </div>
       `;
 
@@ -1132,9 +1151,6 @@ window.__ModuleLoader__.load({
 
       // Bind Drawer events
       drawerPanel.querySelector('#dsh-open-file-btn').addEventListener('click', openProgressFile);
-      drawerPanel.querySelector('#dsh-copy-md-btn').addEventListener('click', function() {
-        copyMarkdown(this);
-      });
       drawerPanel.querySelector('#dsh-refresh-btn').addEventListener('click', () => {
         lastRenderedContent = null;
         fetchProgress(activeSessionId);
