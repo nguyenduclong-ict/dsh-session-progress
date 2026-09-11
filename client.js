@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-secondary, #a1a1aa);
           font-family: var(--dsw-font-family, system-ui, sans-serif);
           cursor: pointer;
-          display: none; /* Only visible when a valid progress file exists */
+          display: inline-flex;
           align-items: center;
           gap: 6px;
           padding: 0 8px;
@@ -55,6 +55,22 @@ window.__ModuleLoader__.load({
 
         .dsh-session-progress-button:active {
           transform: scale(0.96);
+        }
+
+        .dsh-session-progress-button.disabled {
+          opacity: 0.42;
+          color: var(--dsw-alias-label-tertiary, #71717a);
+          filter: grayscale(0.8);
+        }
+
+        .dsh-session-progress-button.disabled:hover {
+          opacity: 0.78;
+          filter: grayscale(0.3);
+          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+        }
+
+        .dsh-session-progress-button.disabled .dsh-progress-pill {
+          color: var(--dsw-alias-label-tertiary, #71717a);
         }
 
         body.dsh-drawer-open .dsh-session-progress-button {
@@ -100,20 +116,20 @@ window.__ModuleLoader__.load({
           color: #4ade80;
         }
 
-        /* Floating Hover Tooltip for Progress Button */
+        /* Floating Hover Tooltip / Popover for Progress Button */
         .dsh-progress-tooltip {
           position: absolute;
           bottom: calc(100% + 8px);
           right: 0;
           background: rgba(24, 24, 28, 0.96);
-          backdrop-filter: blur(12px);
+          backdrop-filter: blur(14px);
           border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.16));
           border-radius: 8px;
-          padding: 8px 11px;
-          width: max-content;
+          padding: 9px 12px;
+          width: 240px;
           max-width: 320px;
           box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
-          pointer-events: none;
+          pointer-events: auto; /* Allow mouse interaction inside popover */
           opacity: 0;
           visibility: hidden;
           transform: translateY(4px);
@@ -123,6 +139,17 @@ window.__ModuleLoader__.load({
           z-index: 1001;
           text-align: left;
           cursor: default;
+        }
+
+        /* Invisible bridge area connecting button and popover so mouse moving into popover is not lost */
+        .dsh-progress-tooltip::before {
+          content: '';
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          height: 14px;
+          background: transparent;
         }
 
         .dsh-progress-tooltip::after {
@@ -138,7 +165,8 @@ window.__ModuleLoader__.load({
           transform: rotate(45deg);
         }
 
-        .dsh-session-progress-button:hover .dsh-progress-tooltip {
+        .dsh-session-progress-button:hover .dsh-progress-tooltip,
+        .dsh-progress-tooltip:hover {
           opacity: 1;
           visibility: visible;
           transform: translateY(0);
@@ -166,6 +194,11 @@ window.__ModuleLoader__.load({
           color: #4ade80;
         }
 
+        .dsh-progress-tooltip-badge.disabled {
+          background: rgba(113, 113, 122, 0.25);
+          color: #a1a1aa;
+        }
+
         .dsh-progress-tooltip-title {
           font-size: 11px;
           font-weight: 600;
@@ -183,6 +216,69 @@ window.__ModuleLoader__.load({
         .dsh-progress-tooltip-hint {
           font-size: 10.5px;
           color: var(--dsw-alias-label-tertiary, #71717a);
+        }
+
+        /* Tooltip Toggle Switch Row */
+        .dsh-tooltip-toggle-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding-top: 8px;
+          margin-top: 8px;
+          border-top: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
+        }
+
+        .dsh-tooltip-toggle-label {
+          font-size: 11px;
+          font-weight: 500;
+          color: var(--dsw-alias-label-secondary, #a1a1aa);
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          user-select: none;
+        }
+
+        .dsh-toggle-switch {
+          position: relative;
+          width: 32px;
+          height: 18px;
+          background: rgba(255, 255, 255, 0.16);
+          border-radius: 999px;
+          cursor: pointer;
+          transition: background 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+          flex: none;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .dsh-toggle-switch:hover {
+          background: rgba(255, 255, 255, 0.24);
+        }
+
+        .dsh-toggle-switch.active {
+          background: #3b82f6;
+          border-color: #2563eb;
+        }
+
+        .dsh-toggle-switch.active:hover {
+          background: #60a5fa;
+        }
+
+        .dsh-toggle-switch::after {
+          content: '';
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 12px;
+          height: 12px;
+          background: #ffffff;
+          border-radius: 50%;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .dsh-toggle-switch.active::after {
+          transform: translateX(14px);
         }
 
         /* --- Slide-over Drawer & Backdrop --- */
@@ -375,6 +471,12 @@ window.__ModuleLoader__.load({
           background: rgba(234, 179, 8, 0.15);
           color: #facc15;
           border-color: rgba(234, 179, 8, 0.3);
+        }
+
+        .dsh-drawer-status-badge.disabled {
+          background: rgba(113, 113, 122, 0.18);
+          color: #a1a1aa;
+          border-color: rgba(113, 113, 122, 0.35);
         }
 
         .dsh-drawer-actions {
@@ -889,6 +991,48 @@ window.__ModuleLoader__.load({
     let lastRenderedSessionId = null;
     let isMouseDownOnDrawer = false;
     const subscribers = new Set();
+    const sessionEnabledMap = new Map();
+
+    function isSessionEnabled(sessionId) {
+      if (!sessionId) return true;
+      const sId = String(sessionId);
+      if (sessionEnabledMap.has(sId)) {
+        return sessionEnabledMap.get(sId);
+      }
+      return true;
+    }
+
+    async function toggleSessionProgress(sessionId, explicitTarget) {
+      if (!sessionId) sessionId = resolveCurrentSessionId() || 'default';
+      const sId = String(sessionId);
+      const current = isSessionEnabled(sId);
+      const target = typeof explicitTarget === 'boolean' ? explicitTarget : !current;
+      sessionEnabledMap.set(sId, target);
+
+      // Instant UI update
+      const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
+      updateHeaderButtonUI(latestPercent, hasFile, target);
+      if (isDrawerOpen) {
+        updateDrawerUI(target ? latestData : (latestData ? { ...latestData, enabled: false } : { enabled: false }));
+      }
+
+      try {
+        const res = await fetch('/api/session-progress/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sId, enabled: target })
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          if (typeof resData.enabled === 'boolean') {
+            sessionEnabledMap.set(sId, resData.enabled);
+            updateHeaderButtonUI(latestPercent, hasFile, resData.enabled);
+          }
+        }
+      } catch (e) {
+        console.warn('[dsh-session-progress] Failed to toggle session progress:', e);
+      }
+    }
 
     function notifySubscribers() {
       subscribers.forEach((cb) => {
@@ -950,7 +1094,7 @@ window.__ModuleLoader__.load({
         activeSessionId = null;
         notifySubscribers();
         updateDrawerUI(null);
-        updateHeaderButtonUI(0, false);
+        updateHeaderButtonUI(0, false, true);
         return null;
       }
 
@@ -964,18 +1108,23 @@ window.__ModuleLoader__.load({
             return null;
           }
 
+          const isEnabled = data?.enabled !== undefined ? Boolean(data.enabled) : isSessionEnabled(sessionId);
+          sessionEnabledMap.set(String(sessionId), isEnabled);
+
           const hasFile = Boolean(data && data.found && data.hasFile);
-          latestData = hasFile ? data : null;
+          latestData = hasFile ? { ...data, enabled: isEnabled } : (isEnabled ? null : { enabled: false });
           latestPercent = (hasFile && typeof data.percent === 'number') ? data.percent : 0;
           activeSessionId = sessionId;
 
           notifySubscribers();
-          if (hasFile) {
-            updateDrawerUI(data);
+          if (hasFile && isEnabled) {
+            updateDrawerUI(latestData);
+          } else if (!isEnabled) {
+            updateDrawerUI({ enabled: false, ...latestData });
           } else {
             updateDrawerUI(null);
           }
-          updateHeaderButtonUI(latestPercent, hasFile);
+          updateHeaderButtonUI(latestPercent, hasFile, isEnabled);
           return data;
         }
       } catch (err) {
@@ -1514,6 +1663,47 @@ window.__ModuleLoader__.load({
       const actRow = drawerPanel.querySelector('#dsh-drawer-activity-row');
       const actText = drawerPanel.querySelector('#dsh-drawer-activity-text');
 
+      if (data && data.enabled === false) {
+        if (statusBadge) {
+          statusBadge.className = 'dsh-drawer-status-badge disabled';
+          statusBadge.textContent = 'DISABLED';
+        }
+        if (pctTextEl) {
+          pctTextEl.textContent = 'Progress Disabled';
+          pctTextEl.classList.remove('done');
+        }
+        if (detailTextEl) {
+          detailTextEl.textContent = 'Tracking is paused';
+        }
+        if (fillEl) {
+          fillEl.style.width = '0%';
+          fillEl.classList.remove('done');
+        }
+        if (actRow) actRow.style.display = 'none';
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div class="dsh-drawer-empty">
+              <div class="dsh-drawer-empty-icon">⏸️</div>
+              <div style="font-weight:600; margin-bottom:6px; color:#e4e4e7;">Session Progress is Disabled</div>
+              <div style="color:#a1a1aa; font-size:12px; margin-bottom:14px; max-width:280px; text-align:center;">Automatic progress tracking is paused for this session to conserve prompt tokens.</div>
+              <button type="button" class="dsh-drawer-btn" id="dsh-drawer-enable-btn" style="padding:6px 14px; background:#3b82f6; color:#fff; border-color:#2563eb; cursor:pointer;">
+                ⚡ Re-enable Progress
+              </button>
+            </div>
+          `;
+          const enableBtn = bodyEl.querySelector('#dsh-drawer-enable-btn');
+          if (enableBtn) {
+            enableBtn.addEventListener('click', () => toggleSessionProgress(activeSessionId, true));
+          }
+          lastRenderedContent = null;
+        }
+        if (nameEl) {
+          nameEl.textContent = '(Progress disabled)';
+        }
+        if (updatedEl) updatedEl.textContent = 'Status: Disabled';
+        return;
+      }
+
       if (!data) {
         if (statusBadge) {
           statusBadge.className = 'dsh-drawer-status-badge starting';
@@ -1630,17 +1820,17 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function updateHeaderButtonUI(pct, hasFile) {
+    function updateHeaderButtonUI(pct, hasFile, isEnabled) {
+      const currentSid = resolveCurrentSessionId() || 'default';
+      if (isEnabled === undefined) {
+        isEnabled = isSessionEnabled(currentSid);
+      }
+
       // Purge any button on titlebar, header, or inside drawer
       document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
         .forEach(el => el.remove());
 
       let btn = document.querySelector('.dsh-session-progress-button');
-      if (!hasFile) {
-        if (btn) btn.style.display = 'none';
-        return;
-      }
-
       if (!btn) {
         btn = createProgressButton();
       }
@@ -1667,21 +1857,7 @@ window.__ModuleLoader__.load({
 
       const ringFill = btn.querySelector('.dsh-progress-ring-fill');
       const circumference = 34.56;
-      const offset = circumference * (1 - Math.min(100, Math.max(0, pct)) / 100);
-      if (ringFill) {
-        ringFill.setAttribute('stroke-dashoffset', String(offset));
-        if (pct === 100) ringFill.classList.add('done');
-        else ringFill.classList.remove('done');
-      }
-
       const pill = btn.querySelector('.dsh-progress-pill');
-      if (pill) {
-        pill.textContent = `${pct}%`;
-        if (pct === 100) pill.classList.add('done');
-        else pill.classList.remove('done');
-      }
-
-      const activity = latestData?.currentActivity;
       let tooltip = btn.querySelector('#dsh-progress-btn-tooltip');
       if (!tooltip) {
         tooltip = document.createElement('div');
@@ -1690,24 +1866,111 @@ window.__ModuleLoader__.load({
         btn.appendChild(tooltip);
       }
 
-      if (activity) {
+      const activity = latestData?.currentActivity;
+
+      if (!isEnabled) {
+        btn.classList.add('disabled');
+        if (ringFill) {
+          ringFill.setAttribute('stroke-dashoffset', String(circumference));
+          ringFill.classList.remove('done');
+        }
+        if (pill) {
+          pill.textContent = 'OFF';
+          pill.classList.remove('done');
+        }
         tooltip.innerHTML = `
           <div class="dsh-progress-tooltip-header">
-            <span class="dsh-progress-tooltip-badge ${pct === 100 ? 'done' : ''}">${pct}%</span>
-            <span class="dsh-progress-tooltip-title">Current Activity</span>
-          </div>
-          <div class="dsh-progress-tooltip-body">${escapeHtml(activity)}</div>
-        `;
-        btn.setAttribute('aria-label', `[${pct}%] ${activity}`);
-      } else {
-        tooltip.innerHTML = `
-          <div class="dsh-progress-tooltip-header">
-            <span class="dsh-progress-tooltip-badge ${pct === 100 ? 'done' : ''}">${pct}%</span>
+            <span class="dsh-progress-tooltip-badge disabled">OFF</span>
             <span class="dsh-progress-tooltip-title">Session Progress</span>
           </div>
-          <div class="dsh-progress-tooltip-hint">Click to view details</div>
+          <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-tertiary, #71717a); font-size:11px;">
+            Progress tracking is disabled for this session (conserves tokens).
+          </div>
+          <div class="dsh-tooltip-toggle-row">
+            <span class="dsh-tooltip-toggle-label">
+              <span>⚡ Session Progress</span>
+            </span>
+            <div class="dsh-toggle-switch" id="dsh-tooltip-toggle-switch" title="Enable progress tracking for this session"></div>
+          </div>
         `;
-        btn.setAttribute('aria-label', `Session Progress: ${pct}%`);
+        btn.setAttribute('aria-label', 'Session Progress: Disabled (OFF)');
+      } else {
+        btn.classList.remove('disabled');
+        const numPct = typeof pct === 'number' ? Math.min(100, Math.max(0, pct)) : 0;
+        const offset = circumference * (1 - numPct / 100);
+        const isDone = numPct === 100;
+
+        if (ringFill) {
+          ringFill.setAttribute('stroke-dashoffset', String(offset));
+          if (isDone) ringFill.classList.add('done');
+          else ringFill.classList.remove('done');
+        }
+
+        if (pill) {
+          pill.textContent = `${numPct}%`;
+          if (isDone) pill.classList.add('done');
+          else pill.classList.remove('done');
+        }
+
+        if (hasFile && activity) {
+          tooltip.innerHTML = `
+            <div class="dsh-progress-tooltip-header">
+              <span class="dsh-progress-tooltip-badge ${isDone ? 'done' : ''}">${numPct}%</span>
+              <span class="dsh-progress-tooltip-title">Current Activity</span>
+            </div>
+            <div class="dsh-progress-tooltip-body">${escapeHtml(activity)}</div>
+            <div class="dsh-tooltip-toggle-row">
+              <span class="dsh-tooltip-toggle-label">
+                <span>⚡ Session Progress</span>
+              </span>
+              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="Disable progress tracking for this session"></div>
+            </div>
+          `;
+          btn.setAttribute('aria-label', `[${numPct}%] ${activity}`);
+        } else if (hasFile) {
+          tooltip.innerHTML = `
+            <div class="dsh-progress-tooltip-header">
+              <span class="dsh-progress-tooltip-badge ${isDone ? 'done' : ''}">${numPct}%</span>
+              <span class="dsh-progress-tooltip-title">Session Progress</span>
+            </div>
+            <div class="dsh-progress-tooltip-hint">Click to view details</div>
+            <div class="dsh-tooltip-toggle-row">
+              <span class="dsh-tooltip-toggle-label">
+                <span>⚡ Session Progress</span>
+              </span>
+              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="Disable progress tracking for this session"></div>
+            </div>
+          `;
+          btn.setAttribute('aria-label', `Session Progress: ${numPct}%`);
+        } else {
+          // Ready / New session without progress file yet
+          tooltip.innerHTML = `
+            <div class="dsh-progress-tooltip-header">
+              <span class="dsh-progress-tooltip-badge">0%</span>
+              <span class="dsh-progress-tooltip-title">Ready to Track</span>
+            </div>
+            <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-secondary, #a1a1aa); font-size:11px;">
+              Agent will automatically track progress upon starting tasks.
+            </div>
+            <div class="dsh-tooltip-toggle-row">
+              <span class="dsh-tooltip-toggle-label">
+                <span>⚡ Session Progress</span>
+              </span>
+              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="Disable progress tracking for this session"></div>
+            </div>
+          `;
+          btn.setAttribute('aria-label', 'Session Progress: Ready (0%)');
+        }
+      }
+
+      // Bind toggle switch click
+      const switchEl = tooltip.querySelector('#dsh-tooltip-toggle-switch');
+      if (switchEl) {
+        switchEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          toggleSessionProgress(resolveCurrentSessionId());
+        });
       }
     }
 
@@ -1781,7 +2044,8 @@ window.__ModuleLoader__.load({
           .forEach(el => el.remove());
 
         const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
-        updateHeaderButtonUI(latestPercent, hasFile);
+        const isEnabled = isSessionEnabled(resolveCurrentSessionId());
+        updateHeaderButtonUI(latestPercent, hasFile, isEnabled);
         if (isDrawerOpen) {
           syncDrawerContainer();
         }
@@ -1822,7 +2086,7 @@ window.__ModuleLoader__.load({
                 latestPercent = 0;
                 notifySubscribers();
                 updateDrawerUI(null);
-                updateHeaderButtonUI(0, false);
+                updateHeaderButtonUI(0, false, isSessionEnabled(currentId));
               } else {
                 fetchProgress(currentId);
               }

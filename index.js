@@ -11,6 +11,56 @@ export const inject = ['webServer'];
 const sessionProgressMap = new Map();
 let latestActiveSessionId = null;
 
+// Settings persistence for disabled sessions
+const SETTINGS_FILE = path.join(os.homedir(), '.dsh-session-progress-settings.json');
+const disabledSessions = new Set();
+
+function loadSettings() {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data?.disabledSessions)) {
+        disabledSessions.clear();
+        for (const sid of data.disabledSessions) {
+          if (sid) disabledSessions.add(String(sid));
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[dsh-session-progress] Failed to load settings:', e?.message || e);
+  }
+}
+
+function saveSettings() {
+  try {
+    const data = {
+      disabledSessions: Array.from(disabledSessions)
+    };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[dsh-session-progress] Failed to save settings:', e?.message || e);
+  }
+}
+
+loadSettings();
+
+export function isSessionDisabled(sessionId) {
+  if (!sessionId) return false;
+  return disabledSessions.has(String(sessionId));
+}
+
+export function setSessionDisabled(sessionId, disabled) {
+  if (!sessionId) return;
+  const sId = String(sessionId);
+  if (disabled) {
+    disabledSessions.add(sId);
+  } else {
+    disabledSessions.delete(sId);
+  }
+  saveSettings();
+}
+
 /**
  * Sanitize a string to be safely used as a filename component
  */
@@ -313,6 +363,9 @@ export function apply(ctx) {
           if (sessionId && sessionId !== 'default') {
             latestActiveSessionId = sessionId;
           }
+          if (isSessionDisabled(sessionId)) {
+            return '';
+          }
           const record = getOrCreateSessionProgress(sessionId);
 
           return `
@@ -329,10 +382,10 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - \`current_activity\`: short one-line description of the active step
    Keep the YAML frontmatter keys strictly in English.
 
-2. LANGUAGE ALIGNMENT:
-   Match the primary language of the conversation!
-   - If the user communicates in Vietnamese, write all section headings (Tổng quan, Checklist, Hoạt động hiện tại, Các bước tiếp theo, Ghi chú quan trọng), task descriptions, and narrative text in Vietnamese.
-   - If the user communicates in English, write them in English.
+2. LANGUAGE ALIGNMENT (AUTOMATIC DETECTION):
+   Automatically detect the primary language of the conversation (e.g. Vietnamese, English, Chinese, etc.).
+   Adapt all section headings, checklists, task summaries, and narrative content to match that language naturally.
+   Keep the YAML frontmatter keys strictly in English.
 
 3. STRUCTURED CHECKLIST:
    Maintain milestones and subtasks using standard Markdown checkboxes:
@@ -346,7 +399,22 @@ You MUST maintain and continuously update a Markdown progress file for this sess
    - WHY THIS IS MANDATORY: The user is actively monitoring the live progress bar on the UI. Delaying the progress update while investigating code or running commands makes the system appear frozen, stalled, or stuck at 100%.
    - Keep this file continuously updated as subtasks complete or new steps emerge throughout the session.
 
-## TEMPLATE (ENGLISH):
+5. STRICT 5-SECTION STRUCTURE & NO DUPLICATION (MANDATORY):
+   The document body MUST contain ONLY the 5 canonical H2 sections in exact order:
+   - Overview
+   - Checklist
+   - Current Activity
+   - Next Steps
+   - Key Findings / Notes
+   (Translate section titles naturally if communicating in another language, e.g. Vietnamese: Tổng quan, Checklist, Hoạt động hiện tại, Các bước tiếp theo, Ghi chú quan trọng).
+
+   STRICT NEGATIVE CONSTRAINTS:
+   - NEVER create extra H1 (#) or H2 (##) headings. Do NOT invent custom sections like "## COMPARISON...", "## BEST CONFIG...", or "## EVIDENCE...".
+   - NEVER duplicate sections or keep stale history (e.g. NEVER write "## Current Activity (Old)").
+   - ALL findings, ablation results, comparison tables, metrics, and investigation notes MUST be placed under "## Key Findings / Notes" using H3 (###) or tables.
+   - Always overwrite the file cleanly to reflect the latest state; do not let the document grow into an unorganized scratchpad.
+
+## TEMPLATE:
 ---
 progress: 65%
 status: in_progress
@@ -370,33 +438,7 @@ current_activity: "Running test suites"
 <Planned immediate actions>
 
 ## Key Findings / Notes
-<Important takeaways, metrics, or blocker alerts>
-
-## TEMPLATE (VIETNAMESE):
----
-progress: 65%
-status: in_progress
-current_activity: "Đang chạy bộ kiểm thử"
----
-
-# Tiến độ phiên làm việc: <Tiêu đề mục tiêu>
-
-## Tổng quan
-<Tóm tắt ngắn gọn mục tiêu phiên làm việc và trạng thái hiện tại>
-
-## Checklist
-- [x] Bước 1 đã hoàn thành
-- [/] Bước 2 đang xử lý
-- [ ] Bước 3 đang chờ
-
-## Hoạt động hiện tại
-<Chi tiết công việc đang thực thi ngay lúc này>
-
-## Các bước tiếp theo
-<Các công việc dự kiến tiếp theo>
-
-## Ghi chú quan trọng
-<Các phát hiện, kết quả hoặc cảnh báo quan trọng>
+<Important takeaways, metrics, tables, or blocker alerts. All detailed findings MUST be placed here as subsections or tables.>
 
 `;
         }
@@ -456,6 +498,7 @@ current_activity: "Đang chạy bộ kiểm thử"
           success: true,
           found: true,
           hasFile: true,
+          enabled: !isSessionDisabled(effectiveSessionId),
           sessionId: effectiveSessionId,
           filePath: targetPath,
           fileName: path.basename(targetPath),
@@ -477,6 +520,7 @@ current_activity: "Đang chạy bộ kiểm thử"
           success: false,
           found: false,
           hasFile: false,
+          enabled: !isSessionDisabled(effectiveSessionId || qSessionId),
           error: `Failed to read progress file: ${err?.message || err}`,
           sessionId: qSessionId,
           filePath: targetPath,
@@ -490,6 +534,7 @@ current_activity: "Đang chạy bộ kiểm thử"
       success: true,
       found: false,
       hasFile: false,
+      enabled: !isSessionDisabled(effectiveSessionId),
       sessionId: effectiveSessionId,
       filePath: null,
       percent: 0,
@@ -499,6 +544,51 @@ current_activity: "Đang chạy bộ kiểm thử"
       content: '',
       message: 'No progress file found for session'
     }));
+  };
+
+  // Handler for checking or toggling session progress enabled state
+  const handleToggle = async (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      return res.end();
+    }
+
+    if (req.method === 'GET') {
+      let reqUrl;
+      try {
+        reqUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+      } catch (e) {
+        reqUrl = { searchParams: new URLSearchParams() };
+      }
+      const qSessionId = reqUrl.searchParams.get('sessionId') || 'default';
+      const enabled = !isSessionDisabled(qSessionId);
+      return res.end(JSON.stringify({ success: true, sessionId: qSessionId, enabled }));
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let params = {};
+      try { params = JSON.parse(body || '{}'); } catch (e) {}
+      const qSessionId = params.sessionId || 'default';
+      let targetEnabled = params.enabled;
+      if (typeof targetEnabled !== 'boolean') {
+        targetEnabled = isSessionDisabled(qSessionId); // toggle
+      }
+      setSessionDisabled(qSessionId, !targetEnabled);
+      const isNowEnabled = !isSessionDisabled(qSessionId);
+      ctx.logger?.info?.(`[dsh-session-progress] Session ${qSessionId} progress enabled set to ${isNowEnabled}`);
+      return res.end(JSON.stringify({
+        success: true,
+        sessionId: qSessionId,
+        enabled: isNowEnabled
+      }));
+    });
   };
 
   // Handler for opening file in OS editor
@@ -546,11 +636,13 @@ current_activity: "Đang chạy bộ kiểm thử"
 
   // 2. HTTP Endpoints (Primary & Compatibility aliases)
   ctx.webServer.register({ kind: 'exact', path: '/api/session-progress/content', handler: handleContent });
+  ctx.webServer.register({ kind: 'exact', path: '/api/session-progress/toggle', handler: handleToggle });
   ctx.webServer.register({ kind: 'exact', path: '/api/session-progress/open', handler: handleOpen });
 
   // Backward compatibility alias routes
   ctx.webServer.register({ kind: 'exact', path: '/api/task-progress/content', handler: handleContent });
+  ctx.webServer.register({ kind: 'exact', path: '/api/task-progress/toggle', handler: handleToggle });
   ctx.webServer.register({ kind: 'exact', path: '/api/task-progress/open', handler: handleOpen });
 
-  ctx.logger?.info?.('dsh-session-progress endpoints /api/session-progress/content and /api/session-progress/open ready');
+  ctx.logger?.info?.('dsh-session-progress endpoints /api/session-progress/content, /toggle, and /open ready');
 }
