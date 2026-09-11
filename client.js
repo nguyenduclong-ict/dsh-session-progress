@@ -77,6 +77,91 @@ window.__ModuleLoader__.load({
           color: #4ade80;
         }
 
+        /* Floating Hover Tooltip for Progress Button */
+        .dsh-progress-tooltip {
+          position: absolute;
+          bottom: calc(100% + 8px);
+          right: 0;
+          background: rgba(24, 24, 28, 0.96);
+          backdrop-filter: blur(12px);
+          border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.16));
+          border-radius: 8px;
+          padding: 8px 11px;
+          width: max-content;
+          max-width: 320px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+          pointer-events: none;
+          opacity: 0;
+          visibility: hidden;
+          transform: translateY(4px);
+          transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+                      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+                      visibility 0.18s;
+          z-index: 1001;
+          text-align: left;
+          cursor: default;
+        }
+
+        .dsh-progress-tooltip::after {
+          content: '';
+          position: absolute;
+          bottom: -5px;
+          right: 18px;
+          width: 8px;
+          height: 8px;
+          background: rgba(24, 24, 28, 0.96);
+          border-right: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.16));
+          border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.16));
+          transform: rotate(45deg);
+        }
+
+        .dsh-session-progress-button:hover .dsh-progress-tooltip {
+          opacity: 1;
+          visibility: visible;
+          transform: translateY(0);
+        }
+
+        .dsh-progress-tooltip-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 4px;
+        }
+
+        .dsh-progress-tooltip-badge {
+          font-size: 10px;
+          font-weight: 700;
+          padding: 1px 5px;
+          border-radius: 4px;
+          background: rgba(59, 130, 246, 0.2);
+          color: #60a5fa;
+          line-height: 1.2;
+        }
+
+        .dsh-progress-tooltip-badge.done {
+          background: rgba(34, 197, 94, 0.2);
+          color: #4ade80;
+        }
+
+        .dsh-progress-tooltip-title {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--dsw-alias-label-primary, #ffffff);
+          letter-spacing: 0.2px;
+        }
+
+        .dsh-progress-tooltip-body {
+          font-size: 11.5px;
+          line-height: 1.45;
+          color: var(--dsw-alias-label-secondary, #d4d4d8);
+          word-break: break-word;
+        }
+
+        .dsh-progress-tooltip-hint {
+          font-size: 10.5px;
+          color: var(--dsw-alias-label-tertiary, #71717a);
+        }
+
         /* --- Slide-over Drawer & Backdrop --- */
         .dsh-drawer-backdrop {
           position: fixed;
@@ -473,6 +558,52 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-secondary, #d4d4d8);
         }
 
+        /* Markdown Tables */
+        .dsh-md-table-wrap {
+          width: 100%;
+          overflow-x: auto;
+          margin: 12px 0;
+          border-radius: 6px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(0, 0, 0, 0.2);
+        }
+
+        .dsh-md-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 12px;
+          line-height: 1.5;
+          color: var(--dsw-alias-label-secondary, #d4d4d8);
+          text-align: left;
+        }
+
+        .dsh-md-table th {
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--dsw-alias-label-primary, #ffffff);
+          font-weight: 600;
+          padding: 8px 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+          white-space: nowrap;
+        }
+
+        .dsh-md-table td {
+          padding: 7px 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          vertical-align: top;
+        }
+
+        .dsh-md-table tbody tr:last-child td {
+          border-bottom: none;
+        }
+
+        .dsh-md-table tbody tr:hover {
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .dsh-md-table code {
+          font-size: 11px;
+        }
+
         /* Drawer Footer */
         .dsh-drawer-footer {
           padding: 8px 16px;
@@ -541,6 +672,9 @@ window.__ModuleLoader__.load({
     let latestData = null;
     let isDrawerOpen = false;
     let pollingTimer = null;
+    let lastRenderedContent = null;
+    let lastRenderedSessionId = null;
+    let isMouseDownOnDrawer = false;
     const subscribers = new Set();
 
     function notifySubscribers() {
@@ -631,6 +765,50 @@ window.__ModuleLoader__.load({
       }).catch(() => {});
     }
 
+    function isTableDelimiter(str) {
+      if (!str) return false;
+      const trimmed = str.trim();
+      return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(trimmed);
+    }
+
+    function splitTableRow(rowStr) {
+      let trimmed = rowStr.trim();
+      if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+      if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
+      const cells = [];
+      let current = '';
+      let inCode = false;
+      for (let i = 0; i < trimmed.length; i++) {
+        const char = trimmed[i];
+        if (char === '`') {
+          inCode = !inCode;
+          current += char;
+        } else if (char === '\\' && i + 1 < trimmed.length && trimmed[i + 1] === '|') {
+          current += '|';
+          i++;
+        } else if (char === '|' && !inCode) {
+          cells.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
+    }
+
+    function parseAlignments(delimStr) {
+      const cells = splitTableRow(delimStr);
+      return cells.map(cell => {
+        const t = cell.trim();
+        const left = t.startsWith(':');
+        const right = t.endsWith(':');
+        if (left && right) return 'center';
+        if (right) return 'right';
+        return 'left';
+      });
+    }
+
     /**
      * Parse lightweight Markdown into HTML (stripping YAML frontmatter from body)
      */
@@ -652,7 +830,7 @@ window.__ModuleLoader__.load({
         bodyText = markdown.slice(fmMatch[0].length);
       }
 
-      const lines = bodyText.split('\n');
+      const lines = bodyText.split(/\r?\n/);
       let html = '';
       let inList = false;
       let inCodeBlock = false;
@@ -746,6 +924,53 @@ window.__ModuleLoader__.load({
           continue;
         }
 
+        // Markdown Table
+        if (line.includes('|') && i + 1 < lines.length && isTableDelimiter(lines[i + 1])) {
+          if (inList) { html += '</ul>'; inList = false; }
+          const headers = splitTableRow(line);
+          const aligns = parseAlignments(lines[i + 1]);
+          i += 2;
+          const rows = [];
+          while (i < lines.length) {
+            const rowLine = lines[i];
+            const trimmed = rowLine.trim();
+            if (!trimmed) {
+              // Tolerate accidental blank line within table rows
+              let nextIdx = i + 1;
+              while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
+              if (nextIdx < lines.length && lines[nextIdx].trim().startsWith('|')) {
+                i++;
+                continue;
+              } else {
+                break;
+              }
+            }
+            if (!trimmed.includes('|')) break;
+            if (trimmed.startsWith('#') || trimmed.startsWith('- [') || trimmed.startsWith('```')) break;
+            rows.push(splitTableRow(rowLine));
+            i++;
+          }
+          i--;
+
+          html += '<div class="dsh-md-table-wrap"><table class="dsh-md-table"><thead><tr>';
+          for (let c = 0; c < headers.length; c++) {
+            const align = aligns[c] || 'left';
+            html += `<th style="text-align:${align};">${inlineFormat(headers[c])}</th>`;
+          }
+          html += '</tr></thead><tbody>';
+          for (const row of rows) {
+            html += '<tr>';
+            for (let c = 0; c < headers.length; c++) {
+              const align = aligns[c] || 'left';
+              const cellVal = row[c] !== undefined ? row[c] : '';
+              html += `<td style="text-align:${align};">${inlineFormat(cellVal)}</td>`;
+            }
+            html += '</tr>';
+          }
+          html += '</tbody></table></div>';
+          continue;
+        }
+
         // Standard lists
         const ulMatch = line.match(/^[\s]*[-*+]\s+(.+)$/);
         if (ulMatch) {
@@ -784,6 +1009,8 @@ window.__ModuleLoader__.load({
       res = res.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       // Italic *...*
       res = res.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      // Links [text](url)
+      res = res.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;text-decoration:underline;">$1</a>');
       return res;
     }
 
@@ -909,9 +1136,21 @@ window.__ModuleLoader__.load({
         copyMarkdown(this);
       });
       drawerPanel.querySelector('#dsh-refresh-btn').addEventListener('click', () => {
+        lastRenderedContent = null;
         fetchProgress(activeSessionId);
       });
       drawerPanel.querySelector('#dsh-close-drawer-btn').addEventListener('click', () => closeDrawer());
+
+      // Track mouse dragging / selection on drawer body
+      const bodyEl = drawerPanel.querySelector('#dsh-drawer-body-content');
+      if (bodyEl) {
+        bodyEl.addEventListener('mousedown', () => {
+          isMouseDownOnDrawer = true;
+        });
+      }
+      window.addEventListener('mouseup', () => {
+        isMouseDownOnDrawer = false;
+      });
 
       const pathBox = drawerPanel.querySelector('#dsh-drawer-file-path');
       pathBox.addEventListener('click', () => {
@@ -941,7 +1180,10 @@ window.__ModuleLoader__.load({
     function openDrawer(sessionId) {
       ensureDrawerElements();
       updateTopOffset();
-      if (sessionId) activeSessionId = sessionId;
+      if (sessionId && sessionId !== activeSessionId) {
+        activeSessionId = sessionId;
+        lastRenderedContent = null;
+      }
       isDrawerOpen = true;
       document.body.classList.add('dsh-drawer-open');
       drawerBackdrop.classList.add('open');
@@ -1019,7 +1261,31 @@ window.__ModuleLoader__.load({
       }
 
       if (bodyEl) {
-        bodyEl.innerHTML = renderMarkdownToHtml(data?.content || '');
+        const newContent = data?.content || '';
+        const currentSid = data?.sessionId || activeSessionId;
+
+        if (currentSid && currentSid !== lastRenderedSessionId) {
+          lastRenderedContent = null;
+          lastRenderedSessionId = currentSid;
+        }
+
+        // Check if user has an active text selection inside bodyEl or is dragging mouse
+        const selection = window.getSelection();
+        const hasActiveSelection = Boolean(
+          isMouseDownOnDrawer ||
+          (selection && !selection.isCollapsed && selection.rangeCount > 0 &&
+            (bodyEl.contains(selection.anchorNode) || bodyEl.contains(selection.focusNode)))
+        );
+
+        if (newContent !== lastRenderedContent) {
+          // If user is actively selecting or highlighting text, postpone re-rendering to prevent clearing selection
+          if (!hasActiveSelection) {
+            const prevScrollTop = bodyEl.scrollTop;
+            bodyEl.innerHTML = renderMarkdownToHtml(newContent);
+            bodyEl.scrollTop = prevScrollTop;
+            lastRenderedContent = newContent;
+          }
+        }
       }
 
       if (pathEl) {
@@ -1059,12 +1325,42 @@ window.__ModuleLoader__.load({
       }
 
       btn.style.display = 'inline-flex';
-      btn.title = `Session Progress: ${pct}% (Click to view details)`;
+      btn.removeAttribute('title'); // Prevent native OS tooltip overlapping the custom UI
+
       const pill = btn.querySelector('.dsh-progress-pill');
       if (pill) {
         pill.textContent = `${pct}%`;
         if (pct === 100) pill.classList.add('done');
         else pill.classList.remove('done');
+      }
+
+      const activity = latestData?.currentActivity;
+      let tooltip = btn.querySelector('#dsh-progress-btn-tooltip');
+      if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.className = 'dsh-progress-tooltip';
+        tooltip.id = 'dsh-progress-btn-tooltip';
+        btn.appendChild(tooltip);
+      }
+
+      if (activity) {
+        tooltip.innerHTML = `
+          <div class="dsh-progress-tooltip-header">
+            <span class="dsh-progress-tooltip-badge ${pct === 100 ? 'done' : ''}">${pct}%</span>
+            <span class="dsh-progress-tooltip-title">Current Activity</span>
+          </div>
+          <div class="dsh-progress-tooltip-body">${escapeHtml(activity)}</div>
+        `;
+        btn.setAttribute('aria-label', `[${pct}%] ${activity}`);
+      } else {
+        tooltip.innerHTML = `
+          <div class="dsh-progress-tooltip-header">
+            <span class="dsh-progress-tooltip-badge ${pct === 100 ? 'done' : ''}">${pct}%</span>
+            <span class="dsh-progress-tooltip-title">Session Progress</span>
+          </div>
+          <div class="dsh-progress-tooltip-hint">Click to view details</div>
+        `;
+        btn.setAttribute('aria-label', `Session Progress: ${pct}%`);
       }
     }
 
@@ -1088,10 +1384,11 @@ window.__ModuleLoader__.load({
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'dsh-session-progress-button';
-      btn.title = `Session Progress: ${latestPercent}% (Click to view details)`;
+      btn.setAttribute('aria-label', `Session Progress: ${latestPercent}%`);
       btn.innerHTML = `
         <span class="dsh-progress-icon">📋</span>
         <span class="dsh-progress-pill ${latestPercent === 100 ? 'done' : ''}">${latestPercent}%</span>
+        <div class="dsh-progress-tooltip" id="dsh-progress-btn-tooltip"></div>
       `;
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
