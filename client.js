@@ -15,8 +15,47 @@ window.__ModuleLoader__.load({
 
     const DSH_ICON_CLOSE = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M14.1168 13.197L13.197 14.1167L1.8833 2.80303L2.80309 1.88324L14.1168 13.197Z" fill="currentColor"/><path d="M13.197 1.88326L14.1168 2.80305L2.80309 14.1168L1.8833 13.197L13.197 1.88326Z" fill="currentColor"/></svg>`;
 
+    // Drawer Width Configurations (Default: 420px, Min: 420px, Max: 630px [+50%])
+    const DRAWER_DEFAULT_WIDTH = 420;
+    const DRAWER_MIN_WIDTH = 420;
+    const DRAWER_MAX_WIDTH = 630;
+    const STORAGE_KEY_DRAWER_WIDTH = 'dsh_session_progress_drawer_width';
+    let currentDrawerWidth = DRAWER_DEFAULT_WIDTH;
+
+    function getSavedDrawerWidth() {
+      return currentDrawerWidth;
+    }
+
+    function loadInitialDrawerWidth() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_DRAWER_WIDTH);
+        if (saved) {
+          const parsed = parseInt(saved, 10);
+          if (!isNaN(parsed) && parsed >= DRAWER_MIN_WIDTH && parsed <= DRAWER_MAX_WIDTH) {
+            currentDrawerWidth = parsed;
+            return;
+          }
+        }
+      } catch (e) {}
+      currentDrawerWidth = DRAWER_DEFAULT_WIDTH;
+    }
+
+    function applyDrawerWidth(width, saveToStorage = true) {
+      currentDrawerWidth = Math.max(DRAWER_MIN_WIDTH, Math.min(DRAWER_MAX_WIDTH, width));
+      document.documentElement.style.setProperty('--dsh-drawer-width', `${currentDrawerWidth}px`);
+      if (saveToStorage) {
+        try {
+          localStorage.setItem(STORAGE_KEY_DRAWER_WIDTH, String(currentDrawerWidth));
+        } catch (e) {}
+      }
+    }
+
+    loadInitialDrawerWidth();
+    applyDrawerWidth(currentDrawerWidth, false);
+
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return;
+      applyDrawerWidth(currentDrawerWidth, false);
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
@@ -342,6 +381,48 @@ window.__ModuleLoader__.load({
           transform: translateX(0);
         }
 
+        /* Resize Handle on Drawer Left Edge */
+        .dsh-drawer-resize-handle {
+          position: absolute;
+          top: 0;
+          left: -4px;
+          bottom: 0;
+          width: 8px;
+          cursor: col-resize;
+          z-index: 10000;
+          user-select: none;
+          touch-action: none;
+        }
+
+        .dsh-drawer-resize-handle::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 3px;
+          width: 2px;
+          background: transparent;
+          transition: background 0.15s ease;
+        }
+
+        .dsh-drawer-resize-handle:hover::after,
+        body.dsh-drawer-resizing .dsh-drawer-resize-handle::after {
+          background: #3b82f6;
+        }
+
+        body.dsh-drawer-resizing,
+        body.dsh-drawer-resizing * {
+          cursor: col-resize !important;
+          user-select: none !important;
+        }
+
+        body.dsh-drawer-resizing [class*="body"],
+        body.dsh-drawer-resizing ._8JRpoa_body,
+        body.dsh-drawer-resizing .dsh-drawer-panel,
+        body.dsh-drawer-resizing [class*="split"] {
+          transition: none !important;
+        }
+
         /* --- Hybrid Responsive: Desktop Split-View vs Compact Drawer --- */
         @media (min-width: 960px) {
           /* Desktop Split View: Disable dark overlay backdrop so user can interact with session */
@@ -387,6 +468,10 @@ window.__ModuleLoader__.load({
           .dsh-drawer-panel {
             width: 420px;
             max-width: 90vw;
+          }
+
+          .dsh-drawer-resize-handle {
+            display: none !important;
           }
         }
 
@@ -1520,6 +1605,7 @@ window.__ModuleLoader__.load({
       drawerPanel = document.createElement('div');
       drawerPanel.className = 'dsh-drawer-panel';
       drawerPanel.innerHTML = `
+        <div class="dsh-drawer-resize-handle" id="dsh-drawer-resize-handle" title="Kéo để đổi độ rộng (Nhấp đúp để đặt lại)"></div>
         <div class="dsh-drawer-header">
           <div class="dsh-drawer-title-row">
             <div class="dsh-drawer-title-wrap">
@@ -1581,6 +1667,58 @@ window.__ModuleLoader__.load({
       drawerPanel.addEventListener('mousedown', stopDrag);
       drawerPanel.addEventListener('mouseup', stopDrag);
 
+      // Resize Handle dragging & double click to reset
+      const resizeHandle = drawerPanel.querySelector('#dsh-drawer-resize-handle');
+      if (resizeHandle) {
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+
+        resizeHandle.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            resizeHandle.setPointerCapture(e.pointerId);
+          } catch (err) {}
+          isResizing = true;
+          startX = e.clientX;
+          startWidth = getSavedDrawerWidth();
+          document.body.classList.add('dsh-drawer-resizing');
+        });
+
+        resizeHandle.addEventListener('pointermove', (e) => {
+          if (!isResizing) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const delta = startX - e.clientX;
+          const newWidth = Math.round(startWidth + delta);
+          applyDrawerWidth(newWidth, false);
+        });
+
+        const finishResize = (e) => {
+          if (!isResizing) return;
+          isResizing = false;
+          try {
+            if (e && e.pointerId) {
+              resizeHandle.releasePointerCapture(e.pointerId);
+            }
+          } catch (err) {}
+          document.body.classList.remove('dsh-drawer-resizing');
+          applyDrawerWidth(getSavedDrawerWidth(), true);
+          try { window.dispatchEvent(new Event('resize')); } catch (err) {}
+        };
+
+        resizeHandle.addEventListener('pointerup', finishResize);
+        resizeHandle.addEventListener('pointercancel', finishResize);
+
+        resizeHandle.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          applyDrawerWidth(DRAWER_DEFAULT_WIDTH, true);
+          try { window.dispatchEvent(new Event('resize')); } catch (err) {}
+        });
+      }
+
       // Bind Drawer events
       drawerPanel.querySelector('#dsh-open-file-btn').addEventListener('click', openProgressFile);
       const refreshBtn = drawerPanel.querySelector('#dsh-refresh-btn');
@@ -1636,6 +1774,7 @@ window.__ModuleLoader__.load({
 
     function openDrawer(sessionId) {
       ensureDrawerElements();
+      applyDrawerWidth(getSavedDrawerWidth(), false);
       syncDrawerContainer();
       updateTopOffset();
       if (sessionId && sessionId !== activeSessionId) {
