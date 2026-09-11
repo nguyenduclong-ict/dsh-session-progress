@@ -389,9 +389,12 @@ window.__ModuleLoader__.load({
         }
 
         /* Drawer Body / Content */
+        /* Drawer Body / Content */
         .dsh-drawer-body {
           flex: 1;
           overflow-y: auto;
+          overflow-x: hidden;
+          box-sizing: border-box;
           padding: 16px 20px;
           font-size: 13px;
           line-height: 1.6;
@@ -415,6 +418,10 @@ window.__ModuleLoader__.load({
           color: #ffffff;
           border-bottom: 1px solid rgba(255, 255, 255, 0.1);
           padding-bottom: 6px;
+          overflow-wrap: break-word;
+          word-break: break-word;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-md-h2 {
@@ -427,6 +434,10 @@ window.__ModuleLoader__.load({
           display: flex;
           align-items: center;
           gap: 7px;
+          overflow-wrap: break-word;
+          word-break: break-word;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-md-h2::before {
@@ -444,11 +455,19 @@ window.__ModuleLoader__.load({
           font-weight: 600;
           margin: 12px 0 6px 0;
           color: var(--dsw-alias-label-primary, #f4f4f5);
+          overflow-wrap: break-word;
+          word-break: break-word;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-md-p {
           margin: 6px 0 10px 0;
           color: var(--dsw-alias-label-secondary, #d4d4d8);
+          overflow-wrap: break-word;
+          word-break: break-word;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-md-blockquote {
@@ -458,11 +477,15 @@ window.__ModuleLoader__.load({
           background: rgba(59, 130, 246, 0.08);
           border-radius: 0 4px 4px 0;
           color: var(--dsw-alias-label-secondary, #d4d4d8);
+          overflow-wrap: break-word;
+          word-break: break-word;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-task-item {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           gap: 9px;
           margin: 4px 0;
           font-size: 13px;
@@ -471,6 +494,9 @@ window.__ModuleLoader__.load({
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.05);
           transition: all 0.15s ease;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-task-item:hover {
@@ -489,6 +515,7 @@ window.__ModuleLoader__.load({
           font-weight: 700;
           border: 1.5px solid rgba(255, 255, 255, 0.25);
           user-select: none;
+          margin-top: 2px;
         }
 
         .dsh-task-item.done {
@@ -532,6 +559,13 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-primary, #f4f4f5);
         }
 
+        .dsh-task-label {
+          flex: 1;
+          min-width: 0;
+          overflow-wrap: break-word;
+          word-break: break-word;
+        }
+
         .dsh-md-code {
           background: rgba(255, 255, 255, 0.08);
           padding: 2px 6px;
@@ -539,6 +573,8 @@ window.__ModuleLoader__.load({
           font-family: var(--dsw-font-markdown-code-block, monospace);
           font-size: 12px;
           color: #fcd34d;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .dsh-md-pre {
@@ -551,26 +587,52 @@ window.__ModuleLoader__.load({
           font-size: 12px;
           color: #e4e4e7;
           margin: 8px 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .dsh-md-pre::-webkit-scrollbar {
+          height: 5px;
+        }
+
+        .dsh-md-pre::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
         }
 
         .dsh-md-ul {
           margin: 6px 0 10px 16px;
           padding: 0;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .dsh-md-li {
           margin: 4px 0;
           color: var(--dsw-alias-label-secondary, #d4d4d8);
+          overflow-wrap: break-word;
+          word-break: break-word;
         }
 
         /* Markdown Tables */
         .dsh-md-table-wrap {
           width: 100%;
+          max-width: 100%;
           overflow-x: auto;
+          box-sizing: border-box;
           margin: 12px 0;
           border-radius: 6px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(0, 0, 0, 0.2);
+        }
+
+        .dsh-md-table-wrap::-webkit-scrollbar {
+          height: 5px;
+        }
+
+        .dsh-md-table-wrap::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
         }
 
         .dsh-md-table {
@@ -711,8 +773,11 @@ window.__ModuleLoader__.load({
       // 1. From Cordis services
       if (cordisCtx) {
         try {
-          const s = cordisCtx.sessions?.list?.getSnapshot?.()?.current;
-          if (s) return s;
+          if (cordisCtx.sessions?.list?.getSnapshot) {
+            const current = cordisCtx.sessions.list.getSnapshot().current;
+            if (current) return current;
+            return null; // On new session or unselected state
+          }
         } catch (e) {}
         try {
           const s = cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.key ||
@@ -742,27 +807,46 @@ window.__ModuleLoader__.load({
         }
       } catch (e) {}
 
-      return activeSessionId || 'default';
+      return null;
     }
 
     /**
      * Fetch session progress content from backend
      */
     async function fetchProgress(sessionId) {
-      if (!sessionId) sessionId = resolveCurrentSessionId();
+      if (sessionId === undefined) {
+        sessionId = resolveCurrentSessionId();
+      }
+      if (!sessionId) {
+        latestData = null;
+        latestPercent = 0;
+        activeSessionId = null;
+        notifySubscribers();
+        updateDrawerUI(null);
+        updateHeaderButtonUI(0, false);
+        return null;
+      }
+
       try {
         const res = await fetch(`/api/session-progress/content?sessionId=${encodeURIComponent(sessionId)}`);
         if (res.ok) {
           const data = await res.json();
+          // Guard against out-of-order responses if user switched sessions
+          const currentSid = resolveCurrentSessionId();
+          if (currentSid && currentSid !== sessionId) {
+            return null;
+          }
+
           const hasFile = Boolean(data && data.found && data.hasFile);
           latestData = hasFile ? data : null;
           latestPercent = (hasFile && typeof data.percent === 'number') ? data.percent : 0;
-          if (data?.sessionId && data.sessionId !== 'default' && data.sessionId !== activeSessionId) {
-            activeSessionId = data.sessionId;
-          }
+          activeSessionId = sessionId;
+
           notifySubscribers();
           if (hasFile) {
             updateDrawerUI(data);
+          } else {
+            updateDrawerUI(null);
           }
           updateHeaderButtonUI(latestPercent, hasFile);
           return data;
@@ -1248,7 +1332,7 @@ window.__ModuleLoader__.load({
 
     function updateDrawerUI(data) {
       if (!drawerPanel) return;
-      const pct = typeof data?.percent === 'number' ? data.percent : 0;
+
       const pctTextEl = drawerPanel.querySelector('#dsh-drawer-pct-text');
       const detailTextEl = drawerPanel.querySelector('#dsh-drawer-detail-text');
       const fillEl = drawerPanel.querySelector('#dsh-drawer-progress-fill');
@@ -1260,6 +1344,37 @@ window.__ModuleLoader__.load({
       const actRow = drawerPanel.querySelector('#dsh-drawer-activity-row');
       const actText = drawerPanel.querySelector('#dsh-drawer-activity-text');
 
+      if (!data) {
+        if (statusBadge) {
+          statusBadge.className = 'dsh-drawer-status-badge starting';
+          statusBadge.textContent = 'STARTING';
+        }
+        if (pctTextEl) {
+          pctTextEl.textContent = '0% Completed';
+          pctTextEl.classList.remove('done');
+        }
+        if (detailTextEl) {
+          detailTextEl.textContent = '0/0 tasks completed';
+        }
+        if (fillEl) {
+          fillEl.style.width = '0%';
+          fillEl.classList.remove('done');
+        }
+        if (actRow) actRow.style.display = 'none';
+        if (bodyEl) {
+          bodyEl.innerHTML = renderMarkdownToHtml('');
+          lastRenderedContent = null;
+        }
+        if (nameEl) {
+          nameEl.textContent = '(No file active)';
+        } else if (pathEl) {
+          pathEl.innerHTML = '<span style="flex-shrink:0;">📁</span><span class="dsh-drawer-path-text">(No file active)</span>';
+        }
+        if (updatedEl) updatedEl.textContent = 'Updated: --';
+        return;
+      }
+
+      const pct = typeof data?.percent === 'number' ? data.percent : 0;
       if (statusBadge) {
         const st = (data?.status || (pct === 100 ? 'completed' : 'in_progress')).toLowerCase();
         statusBadge.className = `dsh-drawer-status-badge ${st}`;
@@ -1405,7 +1520,11 @@ window.__ModuleLoader__.load({
       if (pollingTimer) clearInterval(pollingTimer);
       pollingTimer = setInterval(() => {
         const currentSid = resolveCurrentSessionId();
-        if (currentSid) activeSessionId = currentSid;
+        if (currentSid !== activeSessionId) {
+          activeSessionId = currentSid;
+          lastRenderedContent = null;
+          lastRenderedSessionId = currentSid;
+        }
         fetchProgress(activeSessionId);
       }, intervalMs);
     }
@@ -1476,7 +1595,7 @@ window.__ModuleLoader__.load({
     }
 
     // Export module apply & inject
-    exports.inject = ['slots'];
+    exports.inject = ['slots', 'sessions'];
     exports.apply = function(ctx) {
       console.log('[dsh-session-progress] client plugin loaded with bottom-right floating pill...');
       cordisCtx = ctx;
@@ -1487,11 +1606,20 @@ window.__ModuleLoader__.load({
       try {
         if (ctx.sessions?.list?.subscribe) {
           ctx.sessions.list.subscribe((snapshot) => {
-            const currentId = snapshot?.current;
-            if (currentId && currentId !== activeSessionId) {
+            const currentId = snapshot?.current || null;
+            if (currentId !== activeSessionId) {
               activeSessionId = currentId;
               lastRenderedContent = null;
-              fetchProgress(activeSessionId);
+              lastRenderedSessionId = currentId;
+              if (!currentId) {
+                latestData = null;
+                latestPercent = 0;
+                notifySubscribers();
+                updateDrawerUI(null);
+                updateHeaderButtonUI(0, false);
+              } else {
+                fetchProgress(currentId);
+              }
             }
           });
         }

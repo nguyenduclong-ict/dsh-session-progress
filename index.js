@@ -133,14 +133,6 @@ function getOrCreateSessionProgress(sessionId) {
     }
   } catch (e) {}
 
-  // If sId is 'default', adopt the latest active progress file instead of creating a dummy default
-  if (sId === 'default') {
-    const latest = findLatestSessionProgress();
-    if (latest && fs.existsSync(latest.filePath)) {
-      sessionProgressMap.set('default', latest);
-      return latest;
-    }
-  }
 
   // Allocate a designated file path (DO NOT create on disk until agent writes to it)
   const fileUuid = randomUUID();
@@ -434,37 +426,23 @@ current_activity: "Đang chạy bộ kiểm thử"
       reqUrl = { searchParams: new URLSearchParams() };
     }
 
-    const qSessionId = reqUrl.searchParams.get('sessionId') || 'default';
+    const qSessionId = reqUrl.searchParams.get('sessionId');
     const qFilePath = reqUrl.searchParams.get('filePath');
 
     let targetPath = qFilePath;
-    let effectiveSessionId = qSessionId;
+    let effectiveSessionId = qSessionId || 'default';
     let record = null;
 
     if (targetPath && fs.existsSync(targetPath)) {
-      effectiveSessionId = qSessionId;
-    } else {
-      // If a specific session ID (not default) was requested
-      if (qSessionId && qSessionId !== 'default' && qSessionId !== 'undefined' && qSessionId !== 'null') {
-        record = sessionProgressMap.get(qSessionId);
-        if (!record || !fs.existsSync(record.filePath)) {
-          record = getOrCreateSessionProgress(qSessionId);
-        }
-        if (record?.filePath && fs.existsSync(record.filePath)) {
-          targetPath = record.filePath;
-          effectiveSessionId = qSessionId;
-        }
+      effectiveSessionId = qSessionId || 'default';
+    } else if (qSessionId && qSessionId !== 'default' && qSessionId !== 'undefined' && qSessionId !== 'null') {
+      record = sessionProgressMap.get(qSessionId);
+      if (!record || !fs.existsSync(record.filePath)) {
+        record = getOrCreateSessionProgress(qSessionId);
       }
-
-      // If no file found for specific session, or if sessionId was 'default':
-      // Fallback to the latest active progress file on the system
-      if (!targetPath || !fs.existsSync(targetPath)) {
-        const latest = findLatestSessionProgress();
-        if (latest?.filePath && fs.existsSync(latest.filePath)) {
-          targetPath = latest.filePath;
-          effectiveSessionId = latest.sessionId || qSessionId;
-          record = latest;
-        }
+      if (record?.filePath && fs.existsSync(record.filePath)) {
+        targetPath = record.filePath;
+        effectiveSessionId = qSessionId;
       }
     }
 
@@ -509,10 +487,10 @@ current_activity: "Đang chạy bộ kiểm thử"
     }
 
     return res.end(JSON.stringify({
-      success: false,
+      success: true,
       found: false,
       hasFile: false,
-      sessionId: qSessionId,
+      sessionId: effectiveSessionId,
       filePath: null,
       percent: 0,
       tasksTotal: 0,
