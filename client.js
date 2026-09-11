@@ -773,11 +773,8 @@ window.__ModuleLoader__.load({
       // 1. From Cordis services
       if (cordisCtx) {
         try {
-          if (cordisCtx.sessions?.list?.getSnapshot) {
-            const current = cordisCtx.sessions.list.getSnapshot().current;
-            if (current) return current;
-            return null; // On new session or unselected state
-          }
+          const current = cordisCtx.sessions?.list?.getSnapshot?.()?.current;
+          if (current) return current;
         } catch (e) {}
         try {
           const s = cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.key ||
@@ -807,7 +804,7 @@ window.__ModuleLoader__.load({
         }
       } catch (e) {}
 
-      return null;
+      return activeSessionId || null;
     }
 
     /**
@@ -1605,8 +1602,8 @@ window.__ModuleLoader__.load({
       // Subscribe to sessions service changes if available
       try {
         if (ctx.sessions?.list?.subscribe) {
-          ctx.sessions.list.subscribe((snapshot) => {
-            const currentId = snapshot?.current || null;
+          ctx.sessions.list.subscribe(() => {
+            const currentId = ctx.sessions?.list?.getSnapshot?.()?.current || null;
             if (currentId !== activeSessionId) {
               activeSessionId = currentId;
               lastRenderedContent = null;
