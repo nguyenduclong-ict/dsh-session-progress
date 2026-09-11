@@ -342,13 +342,6 @@ export const PROGRESS_WRITE_TOOL_NAME = 'session_progress_write';
 export const PROGRESS_READ_TOOL_NAME = 'session_progress_read';
 
 /**
- * Whether the progress tools were successfully registered on the `tools` service.
- * The injected prompt switches to a whole-file fallback (naming the path) only when they were not,
- * so a session can never lose the ability to record progress.
- */
-let progressToolsRegistered = false;
-
-/**
  * Inspect a candidate progress document for structural corruption.
  *
  * Language agnostic by design: the canonical sections are localized, so duplication is detected from
@@ -483,15 +476,15 @@ function writeFileAtomically(filePath, content) {
  */
 export function renderProgressWriteResult(value) {
   const parts = [
-    `Session progress replaced in full (${value.bytes} bytes written${value.fileName ? ` to ${value.fileName}` : ''}).`,
+    `Progress written in full (${value.bytes} bytes).`,
     `${value.percent}% · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}.`,
-    `${value.tasksTotal} checklist item(s): ${value.tasksDone} done, ${value.tasksInProgress} in progress, ${value.tasksPending} pending.`
+    `${value.tasksDone}/${value.tasksTotal} checklist item(s) done.`
   ];
   if (value.repaired) {
-    parts.push('The previous file contained duplicated content and has now been replaced by this single clean document.');
+    parts.push('The previous file was duplicated and is now a single clean document.');
   }
   if (Array.isArray(value.warnings) && value.warnings.length > 0) {
-    parts.push(`Warnings: ${value.warnings.join(' ')}`);
+    parts.push(value.warnings.join(' '));
   }
   return parts.join(' ');
 }
@@ -508,10 +501,8 @@ export function buildProgressWriteTool() {
   return {
     name: PROGRESS_WRITE_TOOL_NAME,
     description:
-      'Replace the ENTIRE session progress file with `content`. This tool always overwrites the whole document — there is no anchor, no partial edit, and no append, so it can never leave a stale or duplicated copy behind. ' +
-      'Send the COMPLETE document on every call: YAML frontmatter (`progress`, `status`, `current_activity`) followed by the five canonical sections (Overview, Checklist, Current Activity, Next Steps, Key Findings / Notes), localized to the conversation language. ' +
-      'Use this tool for every progress update — never a generic file tool, and never an anchored edit (the file path is deliberately not exposed). Call `session_progress_read` first when you need the current document. ' +
-      'When the user starts a different objective and the previous one is finished, send a brand-new document for the new task only.',
+      'Replace the ENTIRE session progress file with `content` (frontmatter + the five sections). Whole-document replacement only: no anchor, no partial edit, no append, so nothing stale survives underneath. ' +
+      'Refused when the document repeats a title or a section heading, or when it is far over the brevity budget. Call `session_progress_read` first when you need the current document.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -519,8 +510,7 @@ export function buildProgressWriteTool() {
       properties: {
         content: {
           type: 'string',
-          description:
-            'The COMPLETE progress document in Markdown: YAML frontmatter followed by the five canonical sections. This value fully replaces the file.'
+          description: 'The complete progress document (YAML frontmatter + the five sections). Fully replaces the file.'
         }
       }
     },
@@ -528,22 +518,7 @@ export function buildProgressWriteTool() {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: [
-          'fileName',
-          'bytes',
-          'replaced',
-          'repaired',
-          'percent',
-          'status',
-          'tasksTotal',
-          'tasksDone',
-          'tasksInProgress',
-          'tasksPending',
-          'sections',
-          'warnings'
-        ],
         properties: {
-          fileName: { type: 'string' },
           bytes: { type: 'integer' },
           replaced: { type: 'boolean' },
           repaired: { type: 'boolean' },
@@ -552,9 +527,6 @@ export function buildProgressWriteTool() {
           currentActivity: { type: 'string' },
           tasksTotal: { type: 'integer' },
           tasksDone: { type: 'integer' },
-          tasksInProgress: { type: 'integer' },
-          tasksPending: { type: 'integer' },
-          sections: { type: 'array', items: { type: 'string' } },
           warnings: { type: 'array', items: { type: 'string' } }
         }
       },
@@ -611,7 +583,6 @@ export function buildProgressWriteTool() {
       }
 
       return {
-        fileName: path.basename(record.filePath),
         bytes: Buffer.byteLength(content, 'utf-8'),
         replaced: previous.length > 0,
         repaired: previousWasCorrupted,
@@ -620,9 +591,6 @@ export function buildProgressWriteTool() {
         ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
         tasksTotal: parsed.tasksTotal,
         tasksDone: parsed.tasksDone,
-        tasksInProgress: parsed.tasksInProgress,
-        tasksPending: parsed.tasksPending,
-        sections: lint.sections,
         warnings
       };
     }
@@ -637,12 +605,12 @@ export function buildProgressWriteTool() {
  */
 export function renderProgressReadResult(value) {
   if (!value.exists) {
-    return 'No session progress file exists yet for this session. Create it with session_progress_write, sending the complete document (YAML frontmatter + the five canonical sections).';
+    return 'No progress file yet for this session. Create it with session_progress_write, sending the complete document.';
   }
   const notes = [];
   if (value.corrupted) {
     notes.push(
-      'This file is CORRUPTED: it repeats a level-1 title or a section heading, which means two documents were concatenated. Keep the most recent, most complete document and immediately rewrite the file with session_progress_write.'
+      'CORRUPTED: this file repeats a title or a section heading — keep the most complete document and rewrite it now with session_progress_write.'
     );
   }
   if (Array.isArray(value.warnings)) {
@@ -665,9 +633,8 @@ export function buildProgressReadTool() {
   return {
     name: PROGRESS_READ_TOOL_NAME,
     description:
-      'Read the COMPLETE current session progress file verbatim (YAML frontmatter plus the five canonical sections). This is the only supported way to see the document: its file path is intentionally not exposed anywhere, so never look for the file with generic file tools. ' +
-      'Call it before deciding whether a new user request continues the tracked objective or starts a new one, before rewriting the document, and whenever you need the recorded notes, tables, or metrics. ' +
-      'Alongside the verbatim content it reports the parsed percentage, status, checklist counts, section names, and a `corrupted` flag (a repeated title or section heading means two documents were concatenated and the file must be rewritten with session_progress_write).',
+      'Read the session progress file verbatim (frontmatter + the five sections) together with its parsed state: percent, status, checklist counts, warnings and a `corrupted` flag. ' +
+      'This is the only supported way to see the document — never look for its path with generic file tools. Read before deciding whether a request continues the tracked objective or starts a new one.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -677,19 +644,12 @@ export function buildProgressReadTool() {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['exists', 'bytes', 'percent', 'status', 'tasksTotal', 'tasksDone', 'tasksInProgress', 'tasksPending', 'sections', 'corrupted', 'warnings', 'content'],
         properties: {
           exists: { type: 'boolean' },
-          fileName: { type: 'string' },
-          bytes: { type: 'integer' },
           percent: { type: 'integer' },
           status: { type: 'string' },
-          currentActivity: { type: 'string' },
           tasksTotal: { type: 'integer' },
           tasksDone: { type: 'integer' },
-          tasksInProgress: { type: 'integer' },
-          tasksPending: { type: 'integer' },
-          sections: { type: 'array', items: { type: 'string' } },
           corrupted: { type: 'boolean' },
           warnings: { type: 'array', items: { type: 'string' } },
           content: { type: 'string' }
@@ -714,14 +674,10 @@ export function buildProgressReadTool() {
       if (!record?.filePath) {
         return {
           exists: false,
-          bytes: 0,
           percent: 0,
           status: 'starting',
           tasksTotal: 0,
           tasksDone: 0,
-          tasksInProgress: 0,
-          tasksPending: 0,
-          sections: [],
           corrupted: false,
           warnings: [],
           content: ''
@@ -738,16 +694,10 @@ export function buildProgressReadTool() {
 
       return {
         exists: true,
-        fileName: path.basename(record.filePath),
-        bytes: Buffer.byteLength(content, 'utf-8'),
         percent: parsed.percent,
         status: parsed.status,
-        ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
         tasksTotal: parsed.tasksTotal,
         tasksDone: parsed.tasksDone,
-        tasksInProgress: parsed.tasksInProgress,
-        tasksPending: parsed.tasksPending,
-        sections: lint.sections,
         corrupted: lint.errors.length > 0,
         warnings,
         content
@@ -780,43 +730,49 @@ function openInDefaultApp(targetPath) {
 }
 
 /**
- * Prompt header used when the plugin's progress tools are registered: the file is reachable ONLY
- * through those tools, and its path is deliberately withheld so the model cannot address the file
- * with a generic `read`/`write`/`edit`.
+ * The injected system-prompt section.
+ *
+ * Kept deliberately terse: it is re-sent on every request, so every sentence has to earn its tokens.
+ * The file is reachable ONLY through the plugin's tools, and its path is never named (a partial
+ * anchored edit on that path once produced files holding two concatenated documents).
  */
-const PROGRESS_HEADER_TOOL_MODE = `You MUST maintain and continuously update a Markdown progress file for this session, and you may touch it ONLY through this plugin's tools:
-- \`session_progress_read\` — returns the current file VERBATIM (plus the parsed percentage, checklist counts, section names, and a \`corrupted\` flag).
-- \`session_progress_write\` — replaces the WHOLE document atomically.
-The file's path is intentionally not exposed: never look for it, and never use \`read\`, \`write\`, \`edit\`, or shell commands on it.`;
+const PROGRESS_PROMPT_SECTION = `# SESSION PROGRESS
+Keep the session progress file current through this plugin's tools ONLY: \`session_progress_read\` (verbatim content + parsed state) and \`session_progress_write\` (replaces the whole document). Never use read/write/edit/shell on it, and never look for its path.
 
-/**
- * Prompt header used when tool registration failed, so a session can never lose progress tracking.
- */
-const PROGRESS_HEADER_FALLBACK_MODE = `You MUST maintain and continuously update a Markdown progress file for this session. (The plugin's progress tools are unavailable in this session, so use the whole-file \`write\` / \`read\` tools on the path below.)`;
+1. WRITE THE WHOLE DOCUMENT — no anchor, no partial edit, no append. A write that repeats a title or a section heading is refused.
+2. FRONTMATTER FIRST, keys in English: \`progress\` 0-100 · \`status\` starting|in_progress|blocked|completed · \`current_activity\` (one line).
+3. BODY = exactly these 5 H2 sections, in this order, in the conversation's language, nothing else: Overview · Checklist · Current Activity · Next Steps · Key Findings / Notes. Checklist marks: \`- [x]\` done · \`- [/]\` running · \`- [ ]\` pending.
+4. FIRST TOOL CALL of every user turn is a progress action — a write, or a read first when you must check the current content. \`session_progress_read\` reports \`corrupted: true\` when the file repeats a title or section: then rewrite it from the single most complete document.
+5. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, \`progress: 0-5%\`, new checklist); never keep or append the old one. Same objective → update in place (tick items, adjust \`progress\` and \`current_activity\`).
+6. FACTS, NOT PROSE — budget ~150 lines / ~12 KB, last section ~40 lines: \`key = value\` for settings, one table for repeating tuples, one statement per fact, no studies, logs, timings, machine specs or tool inventories; delete superseded text on every write. Over budget → the tool warns or refuses.
+7. The user watches this file: keep \`current_activity\` and the checklist truthful, and trust the write result (bytes, percent, counts, warnings) instead of re-reading.
 
-/**
- * Rule 7 in tool mode: read and write exclusively through the plugin's tools.
- */
-const PROGRESS_RULE7_TOOL_MODE = `7. THE PROGRESS FILE IS TOOL-ONLY (STRICT & CRITICAL):
-   - READ WITH THE TOOL: call \`session_progress_read\` whenever you need the current document — before deciding whether a request continues the tracked objective or starts a new one, before rewriting anything, and when you need the recorded notes or metrics. Never guess the current content.
-   - WRITE WITH THE TOOL: every create, refresh, or rewrite MUST go through \`session_progress_write\`, passing the COMPLETE document in \`content\`. It has no anchor: it atomically replaces the whole file, so a stale copy can never survive underneath.
-   - NEVER TOUCH THE FILE DIRECTLY: do NOT use \`read\`, \`write\`, \`edit\`, shell commands, or any other tool on this file, and do NOT go hunting for its path (it is withheld on purpose, e.g. under the OS temp directory). An anchored \`edit\` whose anchor covered only the YAML frontmatter once left a whole previous document appended below a new one — that is exactly what these tools exist to prevent.
-   - REPAIR A CORRUPTED FILE: when \`session_progress_read\` reports \`corrupted: true\` (a repeated title or section heading), keep only the most recent, most complete document and immediately call \`session_progress_write\` with that single clean document.
-   - DOUBLED DOCUMENTS ARE REFUSED: a write that repeats a level-1 title or any section heading is rejected with an explanation and nothing is written — correct the document and call again.
-   - VERIFY FROM THE RESULT: the write result reports the byte count, the parsed percentage, the checklist counts, and any warnings; rely on it instead of re-reading the file.`;
+TEMPLATE
+---
+progress: 65%
+status: in_progress
+current_activity: "..."
+---
 
-/**
- * Rule 7 in fallback mode: the tools are missing, so name the path and demand a whole-file write.
- * @param {string} filePath - the progress file to name in the prompt.
- * @returns {string} the rule text.
- */
-function progressRule7FallbackMode(filePath) {
-  return `7. WRITE THE PROGRESS FILE DIRECTLY (FALLBACK — the plugin's progress tools are unavailable in this session):
-   - The file is \`${filePath}\`.
-   - Write it with the whole-file \`write\` tool (create or fully replace), sending the COMPLETE document: YAML frontmatter plus the five canonical sections.
-   - NEVER use an anchored \`edit\` on it, and never pass a whole new document as the replacement for a short anchor such as the YAML frontmatter: that replaces only the anchored fragment and leaves the previous document's title and body in place, producing a file with TWO concatenated documents.
-   - Read it with the \`read\` tool when you need the current content.`;
-}
+# <Goal Title>
+
+## Overview
+<objective + current status>
+
+## Checklist
+- [x] ...
+- [/] ...
+- [ ] ...
+
+## Current Activity
+<step running now>
+
+## Next Steps
+<planned actions>
+
+## Key Findings / Notes
+<decisions, chosen values, blockers — facts only>
+`;
 
 export function apply(ctx) {
   ctx.logger?.info?.('dsh-session-progress plugin loading...');
@@ -836,103 +792,7 @@ export function apply(ctx) {
           if (isSessionDisabled(sessionId)) {
             return '';
           }
-          const record = getOrCreateSessionProgress(sessionId);
-          const header = progressToolsRegistered
-            ? `${PROGRESS_HEADER_TOOL_MODE}`
-            : `${PROGRESS_HEADER_FALLBACK_MODE}\nIts path is:\n\`${record.filePath}\``;
-          const rule7 = progressToolsRegistered ? PROGRESS_RULE7_TOOL_MODE : progressRule7FallbackMode(record.filePath);
-
-          return `
-# LIVE SESSION PROGRESS TRACKING
-${header}
-
-## RULES & SPECIFICATIONS:
-1. YAML FRONTMATTER (REQUIRED):
-   Always keep YAML frontmatter at the very top of the file enclosed by \`---\`.
-   Specify:
-   - \`progress\`: integer or percentage string (e.g. \`65%\`)
-   - \`status\`: \`starting\` | \`in_progress\` | \`blocked\` | \`completed\`
-   - \`current_activity\`: short one-line description of the active step
-   Keep the YAML frontmatter keys strictly in English.
-
-2. LANGUAGE ALIGNMENT (AUTOMATIC DETECTION):
-   Automatically detect the primary language of the conversation (e.g. Vietnamese, English, Chinese, etc.).
-   Adapt all section headings, checklists, task summaries, and narrative content to match that language naturally.
-   Keep the YAML frontmatter keys strictly in English.
-
-3. STRUCTURED CHECKLIST:
-   Maintain milestones and subtasks using standard Markdown checkboxes:
-   - \`- [x]\` Completed milestone
-   - \`- [/]\` Current in-progress milestone
-   - \`- [ ]\` Pending milestone
-
-4. ZERO-STEP MANDATE & REAL-TIME UPDATES (STRICT & CRITICAL):
-   - FIRST TOOL CALL MANDATE: Whenever the user assigns a new task or follow-up instruction, your VERY FIRST ACTION / TOOL CALL (before reading code, searching files, or executing terminal commands) MUST be a progress-file action — a full write of the document, or a read first when you must check whether the request continues the tracked objective (see rule 7 for HOW the file must be read and written).
-   - 100% RESET TRIGGER: If the current progress is 100% or marked as completed from a prior task, you MUST IMMEDIATELY reset \`progress: 0%\` (or \`5%\`), set \`status: in_progress\`, update \`current_activity\` to describe the new task, and refresh the checklist with the new plan (see rule 5 for the required full rewrite).
-   - WHY THIS IS MANDATORY: The user is actively monitoring the live progress bar on the UI. Delaying the progress update while investigating code or running commands makes the system appear frozen, stalled, or stuck at 100%.
-   - Keep this file continuously updated as subtasks complete or new steps emerge throughout the session.
-
-5. NEW TASK = FULL REWRITE, NEVER ACCUMULATE (STRICT & CRITICAL):
-   - ONE OBJECTIVE PER FILE: This file tracks exactly ONE active objective at a time. It is NOT a session-wide log of everything done in the session.
-   - DETECT A NEW TASK: The user's message starts a NEW task when it targets a DIFFERENT objective than the one this file currently tracks (different problem, different feature, unrelated request), OR when the previously tracked objective is already finished. An objective counts as FINISHED when ANY of these is true: it has been delivered/completed, its \`progress\` is \`100%\`, its \`status\` is \`completed\`, the user confirms it is done, or the user moves on to an unrelated request without asking for more work on it.
-   - REQUIRED ACTION — REWRITE THE WHOLE FILE: In that situation you MUST discard the old document and WRITE THIS FILE FROM SCRATCH for the new task, in that same first tool call. The old title, the old frontmatter (\`progress\`, \`status\`, \`current_activity\`), the old \`Overview\`, the old \`Checklist\`, and the old \`Current Activity\` are ALL REPLACED — not merged, not appended. The new document starts with the new goal title, \`progress: 0%\` (or \`5%\`), \`status: in_progress\`, a new one-line \`current_activity\` describing the new task, and a brand-new checklist built only from the new task.
-   - STRICTLY FORBIDDEN: Keeping the previous task's checklist and merely "adding a few items" for the new task; ticking old items to fake continuity; carrying the old percentage into the new task; tracking two objectives or two checklists in one file; leaving the old content in place and only appending a new section at the bottom.
-   - CONTINUATION IS THE ONLY EXCEPTION: If the message refines, extends, corrects, or continues the SAME objective already tracked in this file, keep the existing document and update it in place (tick finished milestones, add new subtasks, adjust \`progress\`, refresh \`current_activity\`).
-   - PRESERVE ONLY WHAT MATTERS: If something from the previous task is still relevant (a constraint, a decision, a file path, an unfinished side effect), compress it into ONE short line under \`Key Findings / Notes\`; never keep its checklist. If the user abandons an unfinished task and starts another, do not silently carry its percentage: give the new task its own percentage and record the abandoned task in one line under \`Key Findings / Notes\` (e.g. "Tác vụ trước bị bỏ dở: ...").
-   - SELF-CHECK BEFORE WRITING: Ask yourself "Is this the same objective this file already tracks?" If NO, the write MUST be a complete replacement of the file content, never an edit that adds to it.
-
-6. STRICT 5-SECTION STRUCTURE & NO DUPLICATION (MANDATORY):
-   The document body MUST contain ONLY the 5 canonical H2 sections in exact order:
-   - Overview
-   - Checklist
-   - Current Activity
-   - Next Steps
-   - Key Findings / Notes
-   (Translate section titles naturally if communicating in another language, e.g. Vietnamese: Tổng quan, Checklist, Hoạt động hiện tại, Các bước tiếp theo, Ghi chú quan trọng).
-
-   STRICT NEGATIVE CONSTRAINTS:
-   - NEVER create extra H1 (#) or H2 (##) headings. Do NOT invent custom sections like "## COMPARISON...", "## BEST CONFIG...", or "## EVIDENCE...".
-   - NEVER duplicate sections or keep stale history (e.g. NEVER write "## Current Activity (Old)").
-   - "## Key Findings / Notes" carries ONLY the decision-grade residue: chosen parameter values, thresholds, file paths, blockers, and one-line results. Do NOT paste benchmark studies, sweep matrices, ablation tables, per-run logs, method descriptions, machine specs, CPU/wall-clock timings, or tool inventories into this file — that analysis belongs in the conversation and its artifacts, not in a status snapshot.
-   - Always overwrite the file cleanly to reflect the latest state; do not let the document grow into an unorganized scratchpad.
-
-${rule7}
-
-8. BREVITY BUDGET — FACTS, NOT PROSE (STRICT):
-   - WHAT THIS FILE IS: a status snapshot a human glances at while you work — NOT a report, a log, or a record of your method. Budgets: ~150 lines and ~12 KB for the whole document, ~40 lines for the last section. Going over returns a warning from the write tool; treat it as a required correction.
-   - RECORD QUANTITIES AS BARE FACTS, never as prose: \`số worker song song = 6\`, \`min_sl_distance_pct = 0.2\`, \`run 5529 (1 năm) = 163 lệnh, +110,8%, DD 11,82%\`. Do NOT explain how you measured it, why you chose it, what you tried first, or what the numbers imply: the value is the whole message.
-   - NEVER write: resolved hypotheses, reasoning steps, benchmark/ablation studies, per-run logs, tool or scratch-file inventories, machine specs, timing benchmarks, or anything already visible in the conversation.
-   - SAY EACH FACT ONCE, in the most specific section. Do not repeat the same value in the frontmatter, the checklist, and the notes.
-   - PRUNE ON EVERY WRITE: delete superseded values, resolved questions, detail of finished steps, and stale tables. A rewrite that only adds text is a wrong rewrite. If a fact is still needed but large, keep one line that names the artifact (file, run id) holding the detail.
-   - SHAPE: \`key = value\` lines for settings, one table for repeating tuples (run → metrics), short bullets elsewhere. No prose paragraphs anywhere in the document.
-
-## TEMPLATE:
----
-progress: 65%
-status: in_progress
-current_activity: "Running test suites"
----
-
-# Session Progress: <Goal Title>
-
-## Overview
-<Brief summary of session objective and current status>
-
-## Checklist
-- [x] Step 1 completed
-- [/] Step 2 currently executing
-- [ ] Step 3 pending
-
-## Current Activity
-<Details of what is currently executing>
-
-## Next Steps
-<Planned immediate actions>
-
-## Key Findings / Notes
-<Decision-grade residue only: chosen values, thresholds, file paths, blockers, one-line results — no studies, no logs, no prose>
-
-`;
+          return PROGRESS_PROMPT_SECTION;
         }
       });
       ctx.logger?.info?.('dsh-session-progress registered systemPrompt section "session:progress"');
@@ -946,12 +806,10 @@ current_activity: "Running test suites"
     try {
       toolCtx.tools.register(buildProgressReadTool());
       toolCtx.tools.register(buildProgressWriteTool());
-      progressToolsRegistered = true;
       ctx.logger?.info?.(
         `dsh-session-progress registered tools "${PROGRESS_READ_TOOL_NAME}" and "${PROGRESS_WRITE_TOOL_NAME}"`
       );
     } catch (e) {
-      progressToolsRegistered = false;
       ctx.logger?.warn?.(`[dsh-session-progress] Failed to register progress tools: ${e?.message || e}`);
     }
   });
