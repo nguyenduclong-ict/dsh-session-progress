@@ -890,7 +890,7 @@ window.__ModuleLoader__.load({
     function isTableDelimiter(str) {
       if (!str) return false;
       const trimmed = str.trim();
-      return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(trimmed);
+      return /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?$/.test(trimmed);
     }
 
     function splitTableRow(rowStr) {
