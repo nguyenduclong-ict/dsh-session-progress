@@ -95,6 +95,115 @@ export function setSessionDisabled(sessionId, disabled) {
   setSessionEnabled(sessionId, !disabled);
 }
 
+// --- Todo tool policy -------------------------------------------------------------------------
+// A session whose progress tracking is ON already maintains the progress file as its task list, so
+// the model-facing `todo_write` tool is denied inside that session's agent scope: one source of
+// truth instead of two competing lists. The denial is per agent (never global), and it is lifted
+// again the moment tracking is switched off for that session.
+
+/** The model-facing todo tool this plugin takes away while it tracks a session. */
+export const TODO_TOOL_NAME = 'todo_write';
+
+/** Whether tracking sessions also drop the todo tool; `apply(ctx, { disableTodoTool: false })` opts out. */
+let disableTodoTool = true;
+
+/** agentId (=== its session id) -> disposer of the `tools.restrict()` effect applied for that agent. */
+const todoToolRestrictions = new Map();
+
+/** The session id an agent is keyed by; both ids are the same shared value in DSH. */
+function agentSessionId(agent) {
+  return agent?.session?.id ?? agent?.id ?? null;
+}
+
+/** Whether the session's progress tracking is currently on. */
+function isTrackingSession(sessionId) {
+  return Boolean(sessionId) && !isSessionDisabled(sessionId);
+}
+
+/**
+ * Whether `todo_write` is visible to this agent right now. A preset without the todo tool (the
+ * shipped Minimal mode, or a custom preset with the row removed) answers false, and denying a name
+ * the registry does not know would throw — so the policy stays a silent no-op there.
+ */
+function isTodoToolVisible(agent) {
+  try {
+    return agent?.ctx?.tools?.get?.(TODO_TOOL_NAME, agent) !== undefined;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Apply or lift the `todo_write` denial for one live agent, following its session's tracking state.
+ * Safe to call repeatedly: the disposer is held per agent and lifted exactly once.
+ * @param ctx - the plugin context (used for logging).
+ * @param agent - the live agent to sync; a falsy agent is ignored.
+ */
+export function syncTodoToolPolicy(ctx, agent) {
+  if (!disableTodoTool) return;
+  const agentId = agent?.id ?? agentSessionId(agent);
+  const sessionId = agentSessionId(agent);
+  if (!agentId || !sessionId) return;
+
+  const held = todoToolRestrictions.get(agentId);
+  const shouldDeny = isTrackingSession(sessionId);
+
+  if (shouldDeny && held === undefined) {
+    if (!isTodoToolVisible(agent)) return;
+    try {
+      const disposer = agent.ctx.tools.restrict({ deny: [TODO_TOOL_NAME] });
+      todoToolRestrictions.set(agentId, typeof disposer === 'function' ? disposer : () => {});
+      ctx.logger?.info?.(
+        `[dsh-session-progress] denied "${TODO_TOOL_NAME}" for session ${sessionId} (progress tracking is on)`
+      );
+    } catch (e) {
+      ctx.logger?.warn?.(
+        `[dsh-session-progress] could not deny "${TODO_TOOL_NAME}" for session ${sessionId}: ${e?.message || e}`
+      );
+    }
+    return;
+  }
+
+  if (!shouldDeny && held !== undefined) {
+    try {
+      held();
+    } catch (e) {
+      ctx.logger?.warn?.(`[dsh-session-progress] could not restore "${TODO_TOOL_NAME}": ${e?.message || e}`);
+    }
+    todoToolRestrictions.delete(agentId);
+    ctx.logger?.info?.(
+      `[dsh-session-progress] restored "${TODO_TOOL_NAME}" for session ${sessionId} (progress tracking is off)`
+    );
+  }
+}
+
+/**
+ * Sync the todo-tool policy for every live agent of a scope that just changed. The `default` scope
+ * applies to sessions without their own override, so each live session is re-evaluated by its own id.
+ * @param ctx - the plugin context.
+ * @param agents - the live agent registry.
+ * @param changedSessionId - the session whose switch moved, or `default`.
+ */
+export function syncTodoToolPolicyForToggle(ctx, agents, changedSessionId) {
+  if (!agents) return; // deployment without the agents service: nothing to restrict
+  try {
+    if (changedSessionId && changedSessionId !== DEFAULT_SCOPE) {
+      const agent = agents.get(changedSessionId);
+      if (agent) syncTodoToolPolicy(ctx, agent);
+      return;
+    }
+    for (const agent of agents.list?.() ?? []) syncTodoToolPolicy(ctx, agent);
+  } catch (e) {
+    ctx.logger?.warn?.(`[dsh-session-progress] todo tool policy sync failed: ${e?.message || e}`);
+  }
+}
+
+/** Drop the bookkeeping for an agent that is going away; its effect dies with the agent scope. */
+export function forgetTodoToolPolicy(agent) {
+  const agentId = agent?.id ?? agentSessionId(agent);
+  if (agentId) todoToolRestrictions.delete(agentId);
+}
+
 /**
  * Sanitize a string to be safely used as a filename component
  */
@@ -808,8 +917,9 @@ current_activity: "..."
 <decisions, chosen values, blockers — facts only>
 `;
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
   ctx.logger?.info?.('dsh-session-progress plugin loading...');
+  disableTodoTool = config?.disableTodoTool !== false;
   // 1. Inject System Prompt instructions
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
@@ -845,6 +955,23 @@ export function apply(ctx) {
       );
     } catch (e) {
       ctx.logger?.warn?.(`[dsh-session-progress] Failed to register progress tools: ${e?.message || e}`);
+    }
+  });
+
+  // 3. Keep the todo tool out of every session this plugin tracks. `agents` is provided by
+  // @deepseek-ai/dsh-agent; injecting it here (instead of at module scope) keeps the rest of the
+  // plugin working on a deployment that ships without it.
+  ctx.inject(['agents'], (agentCtx) => {
+    try {
+      agentCtx.on('agent/created', ({ agent }) => syncTodoToolPolicy(ctx, agent));
+      agentCtx.on('agent/disposed', ({ agent }) => forgetTodoToolPolicy(agent));
+      // Agents that were already live when this plugin applied (plugin reload mid-session).
+      for (const agent of agentCtx.agents.list?.() ?? []) syncTodoToolPolicy(ctx, agent);
+      ctx.logger?.info?.(
+        `[dsh-session-progress] todo tool policy active (deny "${TODO_TOOL_NAME}" while tracking)`
+      );
+    } catch (e) {
+      ctx.logger?.warn?.(`[dsh-session-progress] Failed to attach todo tool policy: ${e?.message || e}`);
     }
   });
 
@@ -981,6 +1108,10 @@ export function apply(ctx) {
       }
       setSessionEnabled(qSessionId, targetEnabled);
       const isNowEnabled = !isSessionDisabled(qSessionId);
+      // Move the todo tool with the switch: on ⇒ denied for that session's agent, off ⇒ restored.
+      // The `default` scope re-evaluates every live session, since it is what sessions without their
+      // own override inherit.
+      syncTodoToolPolicyForToggle(ctx, ctx.agents, qSessionId);
       const scope = qSessionId === DEFAULT_SCOPE ? 'default (new sessions)' : `session ${qSessionId}`;
       ctx.logger?.info?.(`[dsh-session-progress] ${scope} progress enabled set to ${isNowEnabled}`);
       return res.end(JSON.stringify({
