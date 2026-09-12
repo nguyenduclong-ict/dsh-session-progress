@@ -42,7 +42,7 @@ window.__ModuleLoader__.load({
 
     function applyDrawerWidth(width, saveToStorage = true) {
       currentDrawerWidth = Math.max(DRAWER_MIN_WIDTH, Math.min(DRAWER_MAX_WIDTH, width));
-      document.documentElement.style.setProperty('--dsh-drawer-width', `${currentDrawerWidth}px`);
+      document.documentElement.style.setProperty('--dshsp-drawer-width', `${currentDrawerWidth}px`);
       if (saveToStorage) {
         try {
           localStorage.setItem(STORAGE_KEY_DRAWER_WIDTH, String(currentDrawerWidth));
@@ -59,9 +59,12 @@ window.__ModuleLoader__.load({
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
+        /* Biến CSS của riêng plugin: namespace --dshsp-* (session progress) để không
+           ghi đè namespace --dsh-* / --dsw-* của DSH. */
         :root {
-          --dsh-drawer-top: 40px;
-          --dsh-drawer-width: 420px;
+          --dshsp-drawer-top: 40px;
+          --dshsp-drawer-width: 420px;
+          --dshsp-viewport-height: calc(100vh - var(--dshsp-drawer-top, 40px));
         }
 
         /* --- Composer Trailing Toolbar Progress Button --- */
@@ -339,11 +342,11 @@ window.__ModuleLoader__.load({
         /* --- Slide-over Drawer & Backdrop --- */
         .dsh-drawer-backdrop {
           position: fixed;
-          top: calc(100vh - var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px))));
+          top: calc(100vh - var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px))));
           left: 0;
           right: 0;
           bottom: 0;
-          height: var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px)));
+          height: var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px)));
           background: rgba(0, 0, 0, 0.45);
           backdrop-filter: blur(2px);
           z-index: 9998;
@@ -359,11 +362,11 @@ window.__ModuleLoader__.load({
 
         .dsh-drawer-panel {
           position: fixed;
-          top: calc(100vh - var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px))));
+          top: calc(100vh - var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px))));
           right: 0;
           bottom: 0;
-          height: var(--dsh-conversation-viewport-height, calc(100vh - var(--dsh-drawer-top, 40px)));
-          width: var(--dsh-drawer-width, 420px);
+          height: var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px)));
+          width: var(--dshsp-drawer-width, 420px);
           max-width: calc(100vw - 40px);
           background: var(--dsw-alias-bg-floating, #18181b);
           border-left: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
@@ -416,14 +419,24 @@ window.__ModuleLoader__.load({
           user-select: none !important;
         }
 
-        body.dsh-drawer-resizing [class*="body"],
-        body.dsh-drawer-resizing ._8JRpoa_body,
-        body.dsh-drawer-resizing .dsh-drawer-panel,
-        body.dsh-drawer-resizing [class*="split"] {
+        /* Chỉ áp dụng trong lúc người dùng đang kéo handle đổi độ rộng của panel:
+           tắt transition trên đúng các container mà plugin đang thu hẹp, không dùng
+           [class*="..."] (hash class của DSH đổi theo build và dễ khớp nhầm UI khác). */
+        body.dsh-drawer-resizing :has(> [data-conversation-scroll]),
+        body.dsh-drawer-resizing :has(> [data-width-handle]),
+        body.dsh-drawer-resizing :has(> [data-trajectory-scroll]),
+        body.dsh-drawer-resizing .dsh-drawer-panel {
           transition: none !important;
         }
 
-        /* --- Hybrid Responsive: Desktop Split-View vs Compact Drawer --- */
+        /* --- Hybrid Responsive: Desktop Split-View vs Compact Drawer ---
+           Nguyên tắc: rule nhắm vào DOM của DSH chỉ được tồn tại khi panel của plugin
+           đang mở/đang đóng (body.dsh-drawer-*), và chỉ nhận diện container của DSH
+           bằng data-attribute ổn định do DSH tự expose:
+             [data-conversation-scroll]  → vùng chat        (khớp cha trực tiếp của nó)
+             [data-width-handle]         → container 2 width handle
+             [data-trajectory-scroll]    → pane cuộn Trajectory (cha = split container)
+           Panel đóng ⇒ stylesheet của plugin không match element nào của DSH. */
         @media (min-width: 960px) {
           /* Desktop Split View: Disable dark overlay backdrop so user can interact with session */
           body.dsh-drawer-open .dsh-drawer-backdrop {
@@ -432,33 +445,22 @@ window.__ModuleLoader__.load({
             pointer-events: none !important;
           }
 
-          /* Reset any whole-frame overrides */
-          [class*="frame"],
-          body.dsh-drawer-open [class*="frame"] {
-            width: 100% !important;
-            transition: none !important;
-          }
-
           /* Contract conversation body container (which holds both scrollBody and the two widthHandles)
              so that both width handles stay centered around the chat content instead of being pushed to the middle */
-          body.dsh-drawer-open [class*="body"]:has(> [data-conversation-scroll]),
-          body.dsh-drawer-open [class*="body"]:has(> [data-width-handle]),
-          body.dsh-drawer-open ._8JRpoa_body {
-            width: calc(100% - var(--dsh-drawer-width, 420px)) !important;
-            margin-right: var(--dsh-drawer-width, 420px) !important;
-            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-
-          [class*="body"]:has(> [data-conversation-scroll]),
-          [class*="body"]:has(> [data-width-handle]),
-          ._8JRpoa_body {
-            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-
+          body.dsh-drawer-open :has(> [data-conversation-scroll]),
+          body.dsh-drawer-open :has(> [data-width-handle]),
           /* Also contract Trajectory split container if open */
-          body.dsh-drawer-open [class*="split"]:has(> [class*="tablePane"]) {
-            width: calc(100% - var(--dsh-drawer-width, 420px)) !important;
-            margin-right: var(--dsh-drawer-width, 420px) !important;
+          body.dsh-drawer-open :has(> [data-trajectory-scroll]) {
+            width: calc(100% - var(--dshsp-drawer-width, 420px)) !important;
+            margin-right: var(--dshsp-drawer-width, 420px) !important;
+            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+          }
+
+          /* Giữ transition thêm một nhịp trong lúc panel đang đóng để chiều thu về cũng mượt;
+             body.dsh-drawer-closing do client.js gỡ sau 320ms. */
+          body.dsh-drawer-closing :has(> [data-conversation-scroll]),
+          body.dsh-drawer-closing :has(> [data-width-handle]),
+          body.dsh-drawer-closing :has(> [data-trajectory-scroll]) {
             transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
           }
         }
@@ -1554,7 +1556,10 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Compute header height and bridge --dsh-conversation-viewport-height to :root
+     * Đo chiều cao header rồi ghi vào biến của riêng plugin (--dshsp-drawer-top /
+     * --dshsp-viewport-height). Biến --dsh-conversation-viewport-height của DSH chỉ
+     * được ĐỌC (dùng làm nguồn số liệu), không ghi đè lên :root nữa — trước đây việc
+     * ghi đè làm lệch layout của DSH (turn rail, chiều cao vùng hội thoại).
      */
     function updateTopOffset() {
       let top = 40;
@@ -1594,12 +1599,15 @@ window.__ModuleLoader__.load({
         }
       } catch (e) {}
 
-      document.documentElement.style.setProperty('--dsh-drawer-top', `${top}px`);
+      const rootStyle = document.documentElement.style;
+      rootStyle.setProperty('--dshsp-drawer-top', `${top}px`);
       if (vh) {
-        document.documentElement.style.setProperty('--dsh-conversation-viewport-height', vh);
+        rootStyle.setProperty('--dshsp-viewport-height', vh);
+      } else {
+        rootStyle.removeProperty('--dshsp-viewport-height');
       }
 
-      // Let CSS variables (--dsh-conversation-viewport-height and --dsh-drawer-top) drive positioning
+      // Panel/backdrop chỉ dùng biến của plugin (--dshsp-viewport-height, --dshsp-drawer-top)
       if (drawerPanel) {
         drawerPanel.style.removeProperty('top');
         drawerPanel.style.removeProperty('height');
@@ -1811,6 +1819,31 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /**
+     * Giữ transition trên container của DSH thêm một nhịp (320ms) sau khi panel đóng,
+     * để chiều thu về cũng mượt; hết nhịp thì gỡ class ⇒ khi panel đóng, stylesheet của
+     * plugin không còn match bất kỳ element nào của DSH.
+     */
+    const DRAWER_CLOSING_MS = 320;
+    let drawerClosingTimer = null;
+
+    function markDrawerClosing() {
+      clearDrawerClosing();
+      document.body.classList.add('dsh-drawer-closing');
+      drawerClosingTimer = setTimeout(() => {
+        drawerClosingTimer = null;
+        document.body.classList.remove('dsh-drawer-closing');
+      }, DRAWER_CLOSING_MS);
+    }
+
+    function clearDrawerClosing() {
+      if (drawerClosingTimer) {
+        clearTimeout(drawerClosingTimer);
+        drawerClosingTimer = null;
+      }
+      document.body.classList.remove('dsh-drawer-closing');
+    }
+
     function openDrawer(sessionId) {
       if (!canOpenProgressPanel()) {
         // Brand-new session screen, or the agent has not written the progress file yet: there is
@@ -1826,6 +1859,7 @@ window.__ModuleLoader__.load({
         activeSessionId = sessionId;
         lastRenderedContent = null;
       }
+      clearDrawerClosing();
       isDrawerOpen = true;
       document.body.classList.add('dsh-drawer-open');
       drawerBackdrop.classList.add('open');
@@ -1840,6 +1874,7 @@ window.__ModuleLoader__.load({
     function closeDrawer() {
       if (!drawerPanel) return;
       isDrawerOpen = false;
+      markDrawerClosing();
       document.body.classList.remove('dsh-drawer-open');
       drawerBackdrop.classList.remove('open');
       drawerPanel.classList.remove('open');
@@ -2043,8 +2078,13 @@ window.__ModuleLoader__.load({
         btn = createProgressButton();
       }
 
-      // Mount into composer trailing toolbar (beside ContextMeter and Model selector)
-      const trailing = document.querySelector('[class*="trailing"]');
+      // Mount into composer trailing toolbar (beside ContextMeter and Model selector).
+      // Chỉ chọn ứng viên thật sự là toolbar của composer (chứa ContextMeter hoặc model
+      // selector); nếu không có thì giữ nguyên hành vi cũ (phần tử đầu tiên khớp).
+      const trailingCandidates = Array.from(document.querySelectorAll('[class*="trailing"]'));
+      const trailing = trailingCandidates.find(el =>
+        el.querySelector('[class*="ContextMeter"], button[aria-haspopup="dialog"]')
+      ) || trailingCandidates[0] || null;
       if (trailing) {
         const contextMeter = trailing.querySelector('[class*="ContextMeter"], [class*="track"]')?.closest('span')
                           || trailing.querySelector('button[aria-haspopup="dialog"]')
