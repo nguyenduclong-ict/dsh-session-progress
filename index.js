@@ -976,6 +976,32 @@ export function applyProgressSectionUpdates(content, updates) {
 }
 
 /**
+ * The checklist is the user's only visible measure of the work, and in practice a model that reports
+ * a finished step tends to keep writing prose while the boxes stay behind. Nothing can verify the
+ * work itself, so the plugin does what it CAN verify: it compares the checklist of the file before
+ * and after every write and, when the boxes did not move while the state did, says so in the write
+ * result — the one moment the model is provably looking at this file.
+ *
+ * @param {object} previousParsed - {@link parseProgress} of the file before the write.
+ * @param {object} parsed - {@link parseProgress} of the file after the write.
+ * @returns {string} the nudge, or '' when the checklist moved or nothing is left to tick.
+ */
+export function buildChecklistHint(previousParsed, parsed) {
+  if (!parsed || parsed.tasksTotal === 0) return '';
+  if (parsed.tasksDone !== (previousParsed?.tasksDone ?? 0)) return '';
+  if (parsed.tasksPending + parsed.tasksInProgress === 0) return '';
+
+  const before = previousParsed?.percent ?? 0;
+  const boxState = `${parsed.tasksDone}/${parsed.tasksTotal} done · ${parsed.tasksInProgress} running · ${parsed.tasksPending} pending`;
+  const fix = 'session_progress_write({ updates: [{ section: "Checklist", content: "..." }] })';
+
+  if (parsed.percent - before >= 5) {
+    return `The checklist did not move (${boxState}) while progress went ${before}% → ${parsed.percent}%: the boxes are what the user reads, so tick every step that is really finished — or correct \`progress\` — with ${fix}.`;
+  }
+  return `The checklist did not move (${boxState}). If a step is finished — including one you finished earlier and left unticked — tick it in this same turn with ${fix}, and keep \`[/]\` on the step running now.`;
+}
+
+/**
  * Replace a file atomically: write a sibling temp file, then rename over the target.
  * @param {string} filePath - destination file.
  * @param {string} content - complete replacement content.
@@ -1015,6 +1041,9 @@ export function renderProgressWriteResult(value) {
   parts.push(`${value.tasksDone}/${value.tasksTotal} checklist item(s) done.`);
   if (value.repaired) {
     parts.push('The previous file was duplicated and is now a single clean document.');
+  }
+  if (value.checklistHint) {
+    parts.push(value.checklistHint);
   }
   if (Array.isArray(value.warnings) && value.warnings.length > 0) {
     parts.push(value.warnings.join(' '));
@@ -1087,6 +1116,7 @@ export function buildProgressWriteTool() {
           percent: { type: 'integer' },
           status: { type: 'string' },
           currentActivity: { type: 'string' },
+          checklistHint: { type: 'string' },
           tasksTotal: { type: 'integer' },
           tasksDone: { type: 'integer' },
           warnings: { type: 'array', items: { type: 'string' } }
@@ -1204,6 +1234,10 @@ export function buildProgressWriteTool() {
       record.lastUpdated = Date.now();
 
       const parsed = parseProgress(next);
+      const previousParsed = parseProgress(previous);
+      // The nudge only exists once a document was already there: creating a file from scratch is not
+      // a missed tick, and an emptied file has nothing to compare against.
+      const checklistHint = previous.trim() === '' ? '' : buildChecklistHint(previousParsed, parsed);
       const warnings = [...patchWarnings, ...lint.warnings];
       if (isSessionDisabled(sessionId)) {
         warnings.push('progress tracking is currently switched OFF for this session, so the UI will not surface this update.');
@@ -1220,6 +1254,7 @@ export function buildProgressWriteTool() {
         percent: parsed.percent,
         status: parsed.status,
         ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
+        checklistHint,
         tasksTotal: parsed.tasksTotal,
         tasksDone: parsed.tasksDone,
         warnings
@@ -1475,12 +1510,13 @@ Keep the session progress file current through this plugin's tools ONLY: \`sessi
 
 1. READ THE LEAST YOU NEED — \`session_progress_read({ sections: ["Checklist", "Next Steps"] })\` returns only those H2 sections (frontmatter + parsed state always come along). Omit \`sections\` only when you truly need the whole document. Section names are matched loosely (case, accents, partial or localized names, 1-based index).
 2. WRITE ONCE PER TURN — prefer the partial edit \`session_progress_write({ updates: [{ section, content, mode }], frontmatter: { progress, status, current_activity } })\`; \`mode\`: replace (default) · append · prepend. Use the whole-document \`content\` ONLY to create the file or to rewrite one reported \`corrupted\`/over budget. Never send both. Each section's \`content\` is its body WITHOUT the \`## heading\` line; an unknown section name is refused.
-3. FRONTMATTER FIRST, keys in English: \`progress\` 0-100 · \`status\` starting|in_progress|blocked|completed · \`current_activity\` (one line).
-4. BODY = exactly these 5 H2 sections, in this order, in the conversation's language, nothing else: Overview · Checklist · Current Activity · Next Steps · Key Findings / Notes. Checklist marks: \`- [x]\` done · \`- [/]\` running · \`- [ ]\` pending. \`Checklist\` holds ONLY the user's actual work — never the tracking itself: no "read/update the progress file", "write progress", "sync tracking", "start tracking" or any other item about this document, and no meta-steps describing the tracking ritual.
-5. FIRST TOOL CALL of every user turn is a progress action — a partial write, or a read first when you must check the current content — but that action is BOOKKEEPING, not work: never list it in \`Checklist\`, \`Current Activity\` or \`Next Steps\`. \`session_progress_read\` reports \`corrupted: true\` when the file repeats a title or section: then rewrite the whole document.
-6. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, \`progress: 0-5%\`, new checklist); never keep or append the old one. Same objective → update in place (tick items, adjust \`progress\` and \`current_activity\`).
-7. FACTS, NOT PROSE — budget ~150 lines / ~12 KB, last section ~40 lines: \`key = value\` for settings, one table for repeating tuples, one statement per fact, no studies, logs, timings, machine specs or tool inventories; delete superseded text on every write. Over budget → the tool warns or refuses.
-8. The user watches this file: keep \`current_activity\` and the checklist truthful, and trust the write result (bytes, percent, counts, warnings) instead of re-reading.
+3. THE CHECKLIST IS A LIVE LEDGER — it is how the user measures the work, so it must be TRUE at the end of every turn, not at the end of the task. The moment a step is verifiably finished, tick it to \`- [x]\` in that SAME write (never "next turn"); keep \`- [/]\` on the step running right now and \`- [ ]\` on the rest; never tick a step that is not done, and never untick one that is. Before you end a turn that moved the work, look at the boxes again: if work moved and the boxes did not, a write is owed — the write result tells you when this happened, so act on it instead of ignoring it.
+4. FRONTMATTER FIRST, keys in English: \`progress\` 0-100 · \`status\` starting|in_progress|blocked|completed · \`current_activity\` (one line). \`progress\` tracks the checklist: do not raise it while the boxes say otherwise.
+5. BODY = exactly these 5 H2 sections, in this order, in the conversation's language, nothing else: Overview · Checklist · Current Activity · Next Steps · Key Findings / Notes. \`Checklist\` holds ONLY the user's actual work — never the tracking itself: no "read/update the progress file", "write progress", "sync tracking", "start tracking" or any other item about this document, and no meta-steps describing the tracking ritual.
+6. FIRST TOOL CALL of every user turn is a progress action — a partial write, or a read first when you must check the current content — but that action is BOOKKEEPING, not work: never list it in \`Checklist\`, \`Current Activity\` or \`Next Steps\`. \`session_progress_read\` reports \`corrupted: true\` when the file repeats a title or section: then rewrite the whole document.
+7. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, \`progress: 0-5%\`, new checklist); never keep or append the old one. Same objective → update in place (tick items, adjust \`progress\` and \`current_activity\`).
+8. FACTS, NOT PROSE — budget ~150 lines / ~12 KB, last section ~40 lines: \`key = value\` for settings, one table for repeating tuples, one statement per fact, no studies, logs, timings, machine specs or tool inventories; delete superseded text on every write. Over budget → the tool warns or refuses.
+9. Trust the write result (bytes, percent, counts, warnings) instead of re-reading the file.
 
 TEMPLATE
 ---
