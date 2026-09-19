@@ -13,60 +13,27 @@ window.__ModuleLoader__.load({
     // DSH Native SVG Icons from @deepseek-ai/dsh-client-ui-primitives
     const DSH_ICON_REFRESH = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M1.272 6.21348C1.70645 3.08888 4.59169 0.908064 7.71634 1.34239C8.95495 1.51469 10.0438 2.07331 10.8814 2.87755L11.9458 1.81407C12.1347 1.6255 12.4572 1.75911 12.4575 2.02598V5.08751C12.4574 5.25303 12.3233 5.38731 12.1577 5.38731H9.0972C8.82993 5.38731 8.69629 5.06361 8.88528 4.87462L10.0327 3.72618C9.3732 3.09994 8.52006 2.66569 7.5513 2.53087C5.08313 2.18779 2.80376 3.91044 2.46048 6.37852C2.11747 8.84665 3.84009 11.1261 6.30814 11.4693C8.77612 11.8121 11.0557 10.0896 11.399 7.62169L11.9937 7.70372L12.5874 7.78673C12.153 10.9112 9.26756 13.0919 6.1431 12.6578C3.01854 12.2234 0.837738 9.33809 1.272 6.21348Z" fill="currentColor"/></svg>`;
 
-    const DSH_ICON_CLOSE = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M14.1168 13.197L13.197 14.1167L1.8833 2.80303L2.80309 1.88324L14.1168 13.197Z" fill="currentColor"/><path d="M13.197 1.88326L14.1168 2.80305L2.80309 14.1168L1.8833 13.197L13.197 1.88326Z" fill="currentColor"/></svg>`;
+    /**
+     * Identity of this plugin inside DSH's right Sidebar tab system.
+     *
+     * The right sidebar is a dock of typed tabs. `TAB_ID` is the identity our body
+     * and chip title register under (the registry's `id`, and the `key` of the two
+     * keyed seats we fill); `TAB_KIND` is the page kind `ctx.sidebarRight.openTab()`
+     * is asked for. The shipped Files and Document-preview tabs work exactly this
+     * way, so the panel is a real sidebar tab — draggable, floatable, splittable —
+     * instead of a hand-rolled fixed-position drawing surface.
+     */
+    const TAB_ID = '@nguyenduclong-ict/dsh-session-progress';
+    const TAB_KIND = 'session-progress';
+    const TAB_TITLE = 'Session Progress';
 
-    // Drawer Width Configurations (Default: 420px, Min: 420px, Max: 630px [+50%])
-    const DRAWER_DEFAULT_WIDTH = 420;
-    const DRAWER_MIN_WIDTH = 420;
-    const DRAWER_MAX_WIDTH = 630;
-    const STORAGE_KEY_DRAWER_WIDTH = 'dsh_session_progress_drawer_width';
-    let currentDrawerWidth = DRAWER_DEFAULT_WIDTH;
-
-    function getSavedDrawerWidth() {
-      return currentDrawerWidth;
-    }
-
-    function loadInitialDrawerWidth() {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY_DRAWER_WIDTH);
-        if (saved) {
-          const parsed = parseInt(saved, 10);
-          if (!isNaN(parsed) && parsed >= DRAWER_MIN_WIDTH && parsed <= DRAWER_MAX_WIDTH) {
-            currentDrawerWidth = parsed;
-            return;
-          }
-        }
-      } catch (e) {}
-      currentDrawerWidth = DRAWER_DEFAULT_WIDTH;
-    }
-
-    function applyDrawerWidth(width, saveToStorage = true) {
-      currentDrawerWidth = Math.max(DRAWER_MIN_WIDTH, Math.min(DRAWER_MAX_WIDTH, width));
-      document.documentElement.style.setProperty('--dshsp-drawer-width', `${currentDrawerWidth}px`);
-      if (saveToStorage) {
-        try {
-          localStorage.setItem(STORAGE_KEY_DRAWER_WIDTH, String(currentDrawerWidth));
-        } catch (e) {}
-      }
-    }
-
-    loadInitialDrawerWidth();
-    applyDrawerWidth(currentDrawerWidth, false);
+    const RING_CIRCUMFERENCE = 34.56;
 
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return;
-      applyDrawerWidth(currentDrawerWidth, false);
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
-        /* Biến CSS của riêng plugin: namespace --dshsp-* (session progress) để không
-           ghi đè namespace --dsh-* / --dsw-* của DSH. */
-        :root {
-          --dshsp-drawer-top: 40px;
-          --dshsp-drawer-width: 420px;
-          --dshsp-viewport-height: calc(100vh - var(--dshsp-drawer-top, 40px));
-        }
-
         /* --- Composer Trailing Toolbar Progress Button --- */
         .dsh-session-progress-button {
           position: relative;
@@ -123,11 +90,6 @@ window.__ModuleLoader__.load({
 
         .dsh-session-progress-button.icon-only .dsh-progress-pill {
           display: none;
-        }
-
-        body.dsh-drawer-open .dsh-session-progress-button {
-          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.12));
-          color: var(--dsw-alias-label-primary, #ffffff);
         }
 
         /* SVG Circular Progress Ring */
@@ -339,162 +301,67 @@ window.__ModuleLoader__.load({
           transform: translateX(14px);
         }
 
-        /* --- Slide-over Drawer & Backdrop --- */
-        .dsh-drawer-backdrop {
-          position: fixed;
-          top: calc(100vh - var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px))));
-          left: 0;
-          right: 0;
-          bottom: 0;
-          height: var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px)));
-          background: rgba(0, 0, 0, 0.45);
-          backdrop-filter: blur(2px);
-          z-index: 9998;
-          opacity: 0;
-          pointer-events: none;
-          transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        .dsh-drawer-backdrop.open {
-          opacity: 1;
-          pointer-events: auto;
-        }
-
-        .dsh-drawer-panel {
-          position: fixed;
-          top: calc(100vh - var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px))));
-          right: 0;
-          bottom: 0;
-          height: var(--dshsp-viewport-height, calc(100vh - var(--dshsp-drawer-top, 40px)));
-          width: var(--dshsp-drawer-width, 420px);
-          max-width: calc(100vw - 40px);
-          background: var(--dsw-alias-bg-floating, #18181b);
-          border-left: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
-          box-shadow: -6px 0 24px rgba(0, 0, 0, 0.45);
-          z-index: 9999;
+        /* ============================================================
+           Right Sidebar tab (native slot: sidebar.right.pane.tab)
+           Panel fills the dock surface: header / scrolling body / footer.
+           ============================================================ */
+        .dsh-sp-panel {
+          flex: 1;
+          min-width: 0;
+          min-height: 0;
           display: flex;
           flex-direction: column;
-          transform: translateX(100%);
-          transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-          color: var(--dsw-alias-label-primary, #f4f4f5);
           font-family: var(--dsw-font-family, system-ui, sans-serif);
-        }
-
-        .dsh-drawer-panel.open {
-          transform: translateX(0);
-        }
-
-        /* Resize Handle on Drawer Left Edge */
-        .dsh-drawer-resize-handle {
-          position: absolute;
-          top: 0;
-          left: -4px;
-          bottom: 0;
-          width: 8px;
-          cursor: col-resize;
-          z-index: 10000;
-          user-select: none;
-          touch-action: none;
-        }
-
-        .dsh-drawer-resize-handle::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          bottom: 0;
-          left: 3px;
-          width: 2px;
+          color: var(--dsw-alias-label-primary, #f4f4f5);
           background: transparent;
-          transition: background 0.15s ease;
+          overflow: hidden;
         }
 
-        .dsh-drawer-resize-handle:hover::after,
-        body.dsh-drawer-resizing .dsh-drawer-resize-handle::after {
-          background: #3b82f6;
-        }
-
-        body.dsh-drawer-resizing,
-        body.dsh-drawer-resizing * {
-          cursor: col-resize !important;
-          user-select: none !important;
-        }
-
-        /* Chỉ áp dụng trong lúc người dùng đang kéo handle đổi độ rộng của panel:
-           tắt transition trên đúng các container mà plugin đang thu hẹp, không dùng
-           [class*="..."] (hash class của DSH đổi theo build và dễ khớp nhầm UI khác). */
-        body.dsh-drawer-resizing :has(> [data-conversation-scroll]),
-        body.dsh-drawer-resizing :has(> [data-width-handle]),
-        body.dsh-drawer-resizing :has(> [data-trajectory-scroll]),
-        body.dsh-drawer-resizing .dsh-drawer-panel {
-          transition: none !important;
-        }
-
-        /* --- Hybrid Responsive: Desktop Split-View vs Compact Drawer ---
-           Nguyên tắc: rule nhắm vào DOM của DSH chỉ được tồn tại khi panel của plugin
-           đang mở/đang đóng (body.dsh-drawer-*), và chỉ nhận diện container của DSH
-           bằng data-attribute ổn định do DSH tự expose:
-             [data-conversation-scroll]  → vùng chat        (khớp cha trực tiếp của nó)
-             [data-width-handle]         → container 2 width handle
-             [data-trajectory-scroll]    → pane cuộn Trajectory (cha = split container)
-           Panel đóng ⇒ stylesheet của plugin không match element nào của DSH. */
-        @media (min-width: 960px) {
-          /* Desktop Split View: Disable dark overlay backdrop so user can interact with session */
-          body.dsh-drawer-open .dsh-drawer-backdrop {
-            display: none !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-          }
-
-          /* Contract conversation body container (which holds both scrollBody and the two widthHandles)
-             so that both width handles stay centered around the chat content instead of being pushed to the middle */
-          body.dsh-drawer-open :has(> [data-conversation-scroll]),
-          body.dsh-drawer-open :has(> [data-width-handle]),
-          /* Also contract Trajectory split container if open */
-          body.dsh-drawer-open :has(> [data-trajectory-scroll]) {
-            width: calc(100% - var(--dshsp-drawer-width, 420px)) !important;
-            margin-right: var(--dshsp-drawer-width, 420px) !important;
-            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-
-          /* Giữ transition thêm một nhịp trong lúc panel đang đóng để chiều thu về cũng mượt;
-             body.dsh-drawer-closing do client.js gỡ sau 320ms. */
-          body.dsh-drawer-closing :has(> [data-conversation-scroll]),
-          body.dsh-drawer-closing :has(> [data-width-handle]),
-          body.dsh-drawer-closing :has(> [data-trajectory-scroll]) {
-            transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-        }
-
-        @media (max-width: 959px) {
-          /* Compact View: Keep modal drawer overlay with responsive maximum width */
-          .dsh-drawer-panel {
-            width: 420px;
-            max-width: 90vw;
-          }
-
-          .dsh-drawer-resize-handle {
-            display: none !important;
-          }
-        }
-
-        /* Drawer Header */
-        .dsh-drawer-header {
-          padding: 14px 18px;
-          border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
-          background: var(--dsw-alias-bg-floating, #18181b);
-          flex-shrink: 0;
-        }
-
-        .dsh-drawer-title-row {
-          display: flex;
+        /* --- Tab chip title (sidebar.right.pane.tab.title) --- */
+        .dsh-sp-title {
+          display: inline-flex;
           align-items: center;
-          justify-content: space-between;
-          margin-bottom: 12px;
-          gap: 10px;
+          gap: 6px;
           min-width: 0;
         }
 
-        .dsh-drawer-title-wrap {
+        .dsh-sp-title-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .dsh-sp-title-pct {
+          font-size: 11px;
+          font-weight: 600;
+          color: #60a5fa;
+          flex: none;
+        }
+
+        .dsh-sp-title-pct.done {
+          color: #4ade80;
+        }
+
+        /* --- Panel header --- */
+        .dsh-sp-head {
+          flex: none;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 12px 14px;
+          border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
+          background: var(--dsw-alias-bg-floating, #18181b);
+        }
+
+        .dsh-sp-head-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .dsh-sp-head-left {
           display: flex;
           align-items: center;
           gap: 8px;
@@ -503,16 +370,7 @@ window.__ModuleLoader__.load({
           overflow: hidden;
         }
 
-        .dsh-drawer-title {
-          font-size: 15px;
-          font-weight: 600;
-          color: var(--dsw-alias-label-primary, #ffffff);
-          margin: 0;
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
-
-        .dsh-drawer-status-badge {
+        .dsh-sp-badge {
           font-size: 10px;
           font-weight: 600;
           padding: 2px 7px;
@@ -526,120 +384,40 @@ window.__ModuleLoader__.load({
           flex-shrink: 0;
         }
 
-        .dsh-drawer-status-badge.completed {
+        .dsh-sp-badge.completed {
           background: rgba(34, 197, 94, 0.15);
           color: #4ade80;
           border-color: rgba(34, 197, 94, 0.3);
         }
 
-        .dsh-drawer-status-badge.blocked,
-        .dsh-drawer-status-badge.paused {
+        .dsh-sp-badge.blocked,
+        .dsh-sp-badge.paused {
           background: rgba(234, 179, 8, 0.15);
           color: #facc15;
           border-color: rgba(234, 179, 8, 0.3);
         }
 
-        .dsh-drawer-status-badge.disabled {
+        .dsh-sp-badge.disabled {
           background: rgba(113, 113, 122, 0.18);
           color: #a1a1aa;
           border-color: rgba(113, 113, 122, 0.35);
         }
 
-        .dsh-drawer-actions {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-shrink: 0;
-        }
-
-        .dsh-drawer-btn {
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.15));
-          color: var(--dsw-alias-label-secondary, #a1a1aa);
-          border-radius: 6px;
-          padding: 4px 8px;
+        .dsh-sp-pct {
           font-size: 12px;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          transition: all 0.15s ease;
-          user-select: none;
-          line-height: 1.2;
-        }
-
-        .dsh-drawer-btn:hover {
-          color: var(--dsw-alias-label-primary, #ffffff);
-          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.3));
-          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.1));
-        }
-
-        .dsh-drawer-btn:active {
-          transform: scale(0.96);
-        }
-
-        .dsh-drawer-btn.icon-only-btn {
-          width: 26px;
-          height: 26px;
-          padding: 0;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          flex: none;
-        }
-
-        .dsh-drawer-btn.icon-only-btn svg {
-          display: block;
-          flex: none;
-          pointer-events: none;
-        }
-
-        .dsh-drawer-btn.refreshing svg {
-          animation: dsh-btn-spin 0.65s linear infinite;
-        }
-
-        @keyframes dsh-btn-spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .dsh-drawer-btn.close-btn {
-          color: var(--dsw-alias-label-tertiary, #71717a);
-        }
-
-        .dsh-drawer-btn.close-btn:hover {
-          color: #f87171;
-          border-color: rgba(248, 113, 113, 0.4);
-          background: rgba(248, 113, 113, 0.12);
-        }
-
-
-        /* Progress Bar Section */
-        .dsh-drawer-progress-box {
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
-          border-radius: 8px;
-          padding: 10px 12px;
-        }
-
-        .dsh-drawer-progress-label-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 12px;
-          margin-bottom: 6px;
-        }
-
-        .dsh-drawer-progress-pct {
           font-weight: 700;
           color: #60a5fa;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
-        .dsh-drawer-progress-pct.done {
+        .dsh-sp-pct.done {
           color: #4ade80;
         }
 
-        .dsh-drawer-progress-detail {
+        .dsh-sp-detail {
+          font-size: 11px;
           color: var(--dsw-alias-label-tertiary, #71717a);
         }
 
@@ -663,52 +441,202 @@ window.__ModuleLoader__.load({
           background: #22c55e;
         }
 
-        .dsh-drawer-activity-row {
-          margin-top: 8px;
-          padding-top: 8px;
-          border-top: 1px dashed rgba(255, 255, 255, 0.1);
+        .dsh-sp-activity {
           display: flex;
           align-items: center;
           gap: 6px;
           font-size: 11px;
           color: #93c5fd;
+          min-width: 0;
         }
 
-        .dsh-drawer-activity-icon {
+        .dsh-sp-activity-icon {
           font-size: 12px;
           color: #fbbf24;
           flex-shrink: 0;
         }
 
-        .dsh-drawer-activity-text {
+        .dsh-sp-activity-text {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
-        /* Drawer Body / Content */
-        /* Drawer Body / Content */
-        .dsh-drawer-body {
+        /* --- Panel buttons --- */
+        .dsh-sp-btn {
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid var(--dsw-alias-border-l4, rgba(255, 255, 255, 0.15));
+          color: var(--dsw-alias-label-secondary, #a1a1aa);
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-size: 12px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          transition: all 0.15s ease;
+          user-select: none;
+          line-height: 1.2;
+          flex: none;
+        }
+
+        .dsh-sp-btn:hover {
+          color: var(--dsw-alias-label-primary, #ffffff);
+          border-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.3));
+          background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.1));
+        }
+
+        .dsh-sp-btn:active {
+          transform: scale(0.96);
+        }
+
+        .dsh-sp-btn.icon-only-btn {
+          width: 26px;
+          height: 26px;
+          padding: 0;
+        }
+
+        .dsh-sp-btn.icon-only-btn svg {
+          display: block;
+          flex: none;
+          pointer-events: none;
+        }
+
+        .dsh-sp-btn.refreshing svg {
+          animation: dsh-btn-spin 0.65s linear infinite;
+        }
+
+        @keyframes dsh-btn-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .dsh-sp-btn.primary {
+          background: #3b82f6;
+          color: #ffffff;
+          border-color: #2563eb;
+          padding: 6px 14px;
+          font-size: 12px;
+        }
+
+        .dsh-sp-btn.primary:hover {
+          background: #60a5fa;
+          color: #ffffff;
+        }
+
+        /* --- Panel body (scroll container) --- */
+        .dsh-sp-body {
           flex: 1;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
           overflow-y: auto;
           overflow-x: hidden;
           box-sizing: border-box;
-          padding: 16px 20px;
-          font-size: 13px;
-          line-height: 1.6;
-          color: var(--dsw-alias-label-primary, #f4f4f5);
         }
 
-        .dsh-drawer-body::-webkit-scrollbar {
+        .dsh-sp-body::-webkit-scrollbar {
           width: 6px;
         }
 
-        .dsh-drawer-body::-webkit-scrollbar-thumb {
+        .dsh-sp-body::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.15);
           border-radius: 3px;
         }
 
-        /* Markdown rendered elements */
+        .dsh-sp-md {
+          padding: 14px 16px;
+          font-size: 13px;
+          line-height: 1.6;
+          color: var(--dsw-alias-label-primary, #f4f4f5);
+          min-width: 0;
+        }
+
+        /* Empty / disabled states */
+        .dsh-sp-empty {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          padding: 36px 22px;
+          color: var(--dsw-alias-label-tertiary, #71717a);
+        }
+
+        .dsh-sp-empty-icon {
+          font-size: 34px;
+          margin-bottom: 12px;
+          opacity: 0.5;
+        }
+
+        .dsh-sp-empty-title {
+          font-weight: 600;
+          color: var(--dsw-alias-label-primary, #e4e4e7);
+          margin-bottom: 6px;
+        }
+
+        .dsh-sp-empty-text {
+          font-size: 12px;
+          max-width: 280px;
+          margin-bottom: 14px;
+        }
+
+        /* --- Panel footer --- */
+        .dsh-sp-foot {
+          flex: none;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 7px 12px;
+          border-top: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
+          background: rgba(0, 0, 0, 0.25);
+          font-size: 11px;
+          color: var(--dsw-alias-label-tertiary, #71717a);
+        }
+
+        .dsh-sp-path {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+          flex: 1;
+          overflow: hidden;
+          cursor: pointer;
+        }
+
+        .dsh-sp-path-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .dsh-sp-path:hover .dsh-sp-path-text {
+          color: var(--dsw-alias-label-secondary, #d4d4d8);
+          text-decoration: underline;
+        }
+
+        .dsh-sp-foot-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
+        }
+
+        .dsh-sp-updated {
+          flex-shrink: 0;
+          white-space: nowrap;
+        }
+
+        .dsh-sp-foot .dsh-sp-btn {
+          padding: 3px 8px;
+          font-size: 11px;
+          height: 22px;
+        }
+
+        /* --- Markdown rendered elements --- */
         .dsh-md-h1 {
           font-size: 15px;
           font-weight: 700;
@@ -968,80 +896,6 @@ window.__ModuleLoader__.load({
         .dsh-md-table code {
           font-size: 11px;
         }
-
-        /* Drawer Footer */
-        .dsh-drawer-footer {
-          padding: 8px 14px;
-          border-top: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.1));
-          background: rgba(0, 0, 0, 0.25);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          font-size: 11px;
-          color: var(--dsw-alias-label-tertiary, #71717a);
-          flex-shrink: 0;
-        }
-
-        .dsh-drawer-path-box {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          min-width: 0;
-          flex: 1;
-          overflow: hidden;
-          cursor: pointer;
-        }
-
-        .dsh-drawer-path-text {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .dsh-drawer-path-box:hover .dsh-drawer-path-text {
-          color: var(--dsw-alias-label-secondary, #d4d4d8);
-          text-decoration: underline;
-        }
-
-        .dsh-drawer-footer-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-shrink: 0;
-        }
-
-        .dsh-drawer-updated-box {
-          flex-shrink: 0;
-          white-space: nowrap;
-          color: var(--dsw-alias-label-tertiary, #71717a);
-          font-size: 11px;
-        }
-
-        .dsh-drawer-footer-btn {
-          padding: 3px 8px;
-          font-size: 11px;
-          height: 22px;
-          line-height: 1;
-        }
-
-        /* Empty state */
-        .dsh-drawer-empty {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          color: var(--dsw-alias-label-tertiary, #71717a);
-          text-align: center;
-          padding: 40px 20px;
-        }
-
-        .dsh-drawer-empty-icon {
-          font-size: 36px;
-          margin-bottom: 12px;
-          opacity: 0.5;
-        }
       `;
       document.head.appendChild(style);
     }
@@ -1051,11 +905,7 @@ window.__ModuleLoader__.load({
     let activeSessionId = null;
     let latestPercent = 0;
     let latestData = null;
-    let isDrawerOpen = false;
     let pollingTimer = null;
-    let lastRenderedContent = null;
-    let lastRenderedSessionId = null;
-    let isMouseDownOnDrawer = false;
     const subscribers = new Set();
     const sessionEnabledMap = new Map();
 
@@ -1082,9 +932,7 @@ window.__ModuleLoader__.load({
       // Instant UI update
       const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
       updateHeaderButtonUI(latestPercent, hasFile, target);
-      if (isDrawerOpen) {
-        updateDrawerUI(target ? latestData : (latestData ? { ...latestData, enabled: false } : { enabled: false }));
-      }
+      notifySubscribers();
 
       try {
         const res = await fetch('/api/session-progress/toggle', {
@@ -1102,11 +950,12 @@ window.__ModuleLoader__.load({
       } catch (e) {
         console.warn('[dsh-session-progress] Failed to toggle session progress:', e);
       }
+      notifySubscribers();
     }
 
     function notifySubscribers() {
       subscribers.forEach((cb) => {
-        try { cb(latestPercent, latestData, isDrawerOpen); } catch (e) {}
+        try { cb(latestPercent, latestData); } catch (e) {}
       });
     }
 
@@ -1169,17 +1018,10 @@ window.__ModuleLoader__.load({
     /**
      * The progress control is ALWAYS mounted (beside the model selector) — including on a brand-new
      * session screen, because its popover carries the switch that turns progress tracking on or off
-     * for coming sessions. Only the side panel is gated on an existing progress file.
+     * for coming sessions.
      */
     function shouldShowProgressTrigger() {
       return true;
-    }
-
-    /**
-     * The side panel is only openable for a real session that already has a progress file.
-     */
-    function canOpenProgressPanel() {
-      return Boolean(currentSessionKey()) && hasProgressFile();
     }
 
     /**
@@ -1220,15 +1062,6 @@ window.__ModuleLoader__.load({
           }
 
           notifySubscribers();
-          if (isDefaultScope) {
-            updateDrawerUI(null);
-          } else if (hasFile && isEnabled) {
-            updateDrawerUI(latestData);
-          } else if (!isEnabled) {
-            updateDrawerUI({ enabled: false, ...latestData });
-          } else {
-            updateDrawerUI(null);
-          }
           updateHeaderButtonUI(latestPercent, hasFile, isEnabled);
           return data;
         }
@@ -1241,34 +1074,20 @@ window.__ModuleLoader__.load({
     /**
      * Open file on host OS
      */
-    async function openProgressFile() {
+    async function openProgressFile(sessionId) {
       if (!latestData || !latestData.filePath) return;
       try {
         await fetch('/api/session-progress/open', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sessionId: latestData.sessionId || activeSessionId,
+            sessionId: latestData.sessionId || sessionId || activeSessionId,
             filePath: latestData.filePath
           })
         });
       } catch (e) {
         console.error('[dsh-session-progress] Failed to open file:', e);
       }
-    }
-
-    /**
-     * Copy raw Markdown to clipboard
-     */
-    function copyMarkdown(btnEl) {
-      if (!latestData || !latestData.content) return;
-      navigator.clipboard.writeText(latestData.content).then(() => {
-        if (btnEl) {
-          const orig = btnEl.innerHTML;
-          btnEl.innerHTML = '✓ Copied!';
-          setTimeout(() => { btnEl.innerHTML = orig; }, 1500);
-        }
-      }).catch(() => {});
     }
 
     function isTableDelimiter(str) {
@@ -1321,10 +1140,10 @@ window.__ModuleLoader__.load({
     function renderMarkdownToHtml(markdown) {
       if (!markdown || !markdown.trim()) {
         return `
-          <div class="dsh-drawer-empty">
-            <div class="dsh-drawer-empty-icon">📋</div>
-            <div>No session progress has been reported yet.</div>
-            <div style="font-size: 11px; margin-top: 6px;">The AI Agent will automatically populate this file as it progresses.</div>
+          <div class="dsh-sp-empty">
+            <div class="dsh-sp-empty-icon">📋</div>
+            <div class="dsh-sp-empty-title">No progress reported yet</div>
+            <div class="dsh-sp-empty-text">The AI agent populates this panel automatically as it works through the task.</div>
           </div>
         `;
       }
@@ -1530,538 +1349,251 @@ window.__ModuleLoader__.load({
         .replace(/'/g, '&#39;');
     }
 
-    // --- DOM Elements for Slide-over Drawer ---
-    let drawerBackdrop = null;
-    let drawerPanel = null;
+    // ============================================================================
+    // Native right Sidebar integration
+    // ============================================================================
 
-    let scrollerObserver = null;
-    function ensureScrollerObserver() {
-      const scroller = document.querySelector('[data-conversation-scroll]');
-      if (!scroller) {
-        if (scrollerObserver) {
-          try { scrollerObserver.disconnect(); } catch (e) {}
-          scrollerObserver = null;
-        }
+    /**
+     * Reveal the progress panel: open (or focus) our tab in the right Sidebar.
+     *
+     * The controller needs a mounted seat to be bound to a session, which happens
+     * while the frame renders the right column. It is there from boot, but a very
+     * early click can land before that binding settles, so a failed open is retried
+     * a few times instead of surfacing as a dead control.
+     */
+    function openProgressPanel() {
+      const sidebarRight = cordisCtx && cordisCtx.sidebarRight;
+      if (!sidebarRight) {
+        console.warn('[dsh-session-progress] Right sidebar service is unavailable; cannot open the progress panel.');
         return;
       }
-      if (scrollerObserver && scrollerObserver.__target === scroller) return;
-      try {
-        if (scrollerObserver) scrollerObserver.disconnect();
-        scrollerObserver = new ResizeObserver(() => {
-          updateTopOffset();
-        });
-        scrollerObserver.__target = scroller;
-        scrollerObserver.observe(scroller);
-      } catch (e) {}
+      const attempt = (left) => {
+        try {
+          sidebarRight.openTab(TAB_KIND);
+        } catch (err) {
+          if (left > 0) {
+            setTimeout(() => attempt(left - 1), 250);
+          } else {
+            console.warn('[dsh-session-progress] Could not open the right sidebar tab:', err);
+          }
+        }
+      };
+      attempt(4);
     }
 
     /**
-     * Đo chiều cao header rồi ghi vào biến của riêng plugin (--dshsp-drawer-top /
-     * --dshsp-viewport-height). Biến --dsh-conversation-viewport-height của DSH chỉ
-     * được ĐỌC (dùng làm nguồn số liệu), không ghi đè lên :root nữa — trước đây việc
-     * ghi đè làm lệch layout của DSH (turn rail, chiều cao vùng hội thoại).
+     * Subscribe one React component to the polling data layer, fetching for the
+     * session the panel belongs to.
      */
-    function updateTopOffset() {
-      let top = 40;
-      let vh = null;
-      try {
-        ensureScrollerObserver();
-        const scroller = document.querySelector('[data-conversation-scroll]');
-        if (scroller) {
-          vh = scroller.style.getPropertyValue('--dsh-conversation-viewport-height');
-          if (!vh && scroller.clientHeight > 0) {
-            vh = `${scroller.clientHeight}px`;
-          }
-          if (vh) {
-            const num = parseFloat(vh);
-            if (num > 0 && num < window.innerHeight) {
-              top = Math.max(0, Math.round(window.innerHeight - num));
-            }
-          }
-        }
-        if (!vh) {
-          const sessionLogBtn = findSessionLogButton();
-          if (sessionLogBtn) {
-            const r = sessionLogBtn.getBoundingClientRect();
-            if (r.bottom > 20 && r.bottom < 100) {
-              top = Math.round(r.bottom);
-            }
-          } else {
-            const topBar = document.querySelector('header, [class*="headerBar"], [class*="titlebar"], [class*="headerNav"], [class*="topbar"]');
-            if (topBar) {
-              const r = topBar.getBoundingClientRect();
-              if (r.bottom > 20 && r.bottom < 100) {
-                top = Math.round(r.bottom);
+    function useProgressState(sessionId) {
+      const [revision, setRevision] = React.useState(0);
+      React.useEffect(() => {
+        const cb = () => setRevision((r) => r + 1);
+        subscribers.add(cb);
+        return () => { subscribers.delete(cb); };
+      }, []);
+      React.useEffect(() => {
+        if (sessionId) fetchProgress(sessionId);
+      }, [sessionId]);
+
+      const sid = sessionId || resolveCurrentSessionId();
+      const data = latestData;
+      const disabled = Boolean(data && data.enabled === false);
+      const enabled = !disabled && isSessionEnabled(sid);
+      const hasFile = Boolean(data && data.found && data.hasFile);
+      const percent = hasFile && typeof latestPercent === 'number'
+        ? Math.max(0, Math.min(100, latestPercent))
+        : 0;
+      return { sessionId: sid, data, percent, enabled, hasFile, revision };
+    }
+
+    function ProgressRing(props) {
+      const percent = props.percent || 0;
+      const isDone = percent >= 100;
+      const offset = RING_CIRCUMFERENCE * (1 - percent / 100);
+      return React.createElement('svg', {
+        className: 'dsh-progress-ring',
+        viewBox: '0 0 14 14',
+        width: '14',
+        height: '14',
+        'aria-hidden': 'true'
+      },
+        React.createElement('circle', { className: 'dsh-progress-ring-track', cx: '7', cy: '7', r: '5.5' }),
+        React.createElement('circle', {
+          className: `dsh-progress-ring-fill${isDone ? ' done' : ''}`,
+          cx: '7',
+          cy: '7',
+          r: '5.5',
+          strokeDasharray: String(RING_CIRCUMFERENCE),
+          strokeDashoffset: String(offset)
+        })
+      );
+    }
+
+    /** The tab chip: ring, label, live percentage. */
+    function ProgressTabTitle(props) {
+      const state = useProgressState(props.sessionId);
+      const isDone = state.hasFile && state.percent === 100;
+      return React.createElement('span', { className: 'dsh-sp-title' },
+        React.createElement(ProgressRing, { percent: state.hasFile ? state.percent : 0 }),
+        React.createElement('span', { className: 'dsh-sp-title-text' }, TAB_TITLE),
+        state.hasFile
+          ? React.createElement('span', { className: `dsh-sp-title-pct${isDone ? ' done' : ''}` }, `${state.percent}%`)
+          : null
+      );
+    }
+
+    /** The tab body: the session progress panel itself. */
+    function ProgressTabBody(props) {
+      const state = useProgressState(props.sessionId);
+      const [refreshing, setRefreshing] = React.useState(false);
+      const [copied, setCopied] = React.useState(false);
+      const bodyRef = React.useRef(null);
+      const scrollRef = React.useRef(0);
+
+      const data = state.data;
+      const content = data && typeof data.content === 'string' ? data.content : '';
+      const html = React.useMemo(() => renderMarkdownToHtml(content), [content]);
+
+      // Keep the reader's place across polls: the rendered HTML is stable while the
+      // Markdown is unchanged (React skips an identical string), so a changed document
+      // is the only case that re-writes the body.
+      const onScroll = (event) => {
+        scrollRef.current = event.currentTarget.scrollTop;
+      };
+      React.useLayoutEffect(() => {
+        const el = bodyRef.current;
+        if (el && el.scrollTop !== scrollRef.current) el.scrollTop = scrollRef.current;
+      }, [html]);
+
+      const onRefresh = () => {
+        setRefreshing(true);
+        Promise.resolve(fetchProgress(state.sessionId)).finally(() => setRefreshing(false));
+      };
+
+      const onCopy = () => {
+        if (!content) return;
+        Promise.resolve(navigator.clipboard.writeText(content)).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }).catch(() => {});
+      };
+
+      const status = String((data && data.status) || (state.percent === 100 ? 'completed' : 'in_progress'))
+        .toLowerCase();
+      const tasksTotal = (data && data.tasksTotal) || 0;
+      const tasksDone = (data && data.tasksDone) || 0;
+      const activity = data && data.currentActivity;
+
+      const fileName = (data && data.fileName) || '(No file active)';
+      const updated = data && data.lastModified
+        ? `Updated: ${new Date(data.lastModified).toLocaleTimeString()}`
+        : 'Updated: --';
+
+      let bodyChild;
+      if (!state.enabled) {
+        bodyChild = React.createElement('div', { className: 'dsh-sp-empty' },
+          React.createElement('div', { className: 'dsh-sp-empty-icon' }, '⏸️'),
+          React.createElement('div', { className: 'dsh-sp-empty-title' }, 'Session Progress is Disabled'),
+          React.createElement('div', { className: 'dsh-sp-empty-text' },
+            'Automatic progress tracking is paused for this session to conserve prompt tokens.'),
+          React.createElement('button', {
+            type: 'button',
+            className: 'dsh-sp-btn primary',
+            onClick: () => toggleSessionProgress(state.sessionId, true)
+          }, '⚡ Re-enable Progress')
+        );
+      } else if (!state.hasFile) {
+        bodyChild = React.createElement('div', {
+          className: 'dsh-sp-empty',
+          dangerouslySetInnerHTML: { __html: renderMarkdownToHtml('') }
+        });
+      } else {
+        bodyChild = React.createElement('div', {
+          className: 'dsh-sp-md',
+          dangerouslySetInnerHTML: { __html: html }
+        });
+      }
+
+      return React.createElement('div', { className: 'dsh-sp-panel', 'data-dsh-sp-panel': true },
+        React.createElement('div', { className: 'dsh-sp-head' },
+          React.createElement('div', { className: 'dsh-sp-head-top' },
+            React.createElement('div', { className: 'dsh-sp-head-left' },
+              React.createElement('span', {
+                className: `dsh-sp-badge ${state.enabled ? status : 'disabled'}`
+              }, state.enabled ? status.replace(/_/g, ' ') : 'disabled'),
+              React.createElement('span', {
+                className: `dsh-sp-pct${state.hasFile && state.percent === 100 ? ' done' : ''}`
+              }, state.enabled ? `${state.percent}% Completed` : 'Progress Disabled')
+            ),
+            React.createElement('button', {
+              type: 'button',
+              className: `dsh-sp-btn icon-only-btn${refreshing ? ' refreshing' : ''}`,
+              title: 'Refresh',
+              'aria-label': 'Refresh session progress',
+              onClick: onRefresh,
+              dangerouslySetInnerHTML: { __html: DSH_ICON_REFRESH }
+            })
+          ),
+          React.createElement('div', { className: 'dsh-sp-detail' },
+            state.enabled
+              ? (tasksTotal > 0 ? `${tasksDone}/${tasksTotal} tasks completed` : 'Checklist not specified')
+              : 'Tracking is paused'),
+          React.createElement('div', { className: 'dsh-progress-track' },
+            React.createElement('div', {
+              className: `dsh-progress-fill${state.enabled && state.percent === 100 ? ' done' : ''}`,
+              style: { width: state.enabled ? `${state.percent}%` : '0%' }
+            })
+          ),
+          activity && state.enabled
+            ? React.createElement('div', { className: 'dsh-sp-activity' },
+                React.createElement('span', { className: 'dsh-sp-activity-icon' }, '⚡'),
+                React.createElement('span', { className: 'dsh-sp-activity-text', title: activity }, activity)
+              )
+            : null
+        ),
+        React.createElement('div', {
+          className: 'dsh-sp-body',
+          ref: bodyRef,
+          onScroll: onScroll
+        }, bodyChild),
+        React.createElement('div', { className: 'dsh-sp-foot' },
+          React.createElement('div', {
+            className: 'dsh-sp-path',
+            title: data && data.filePath ? `Click to copy path: ${data.filePath}` : 'No file active',
+            onClick: () => {
+              if (data && data.filePath) {
+                Promise.resolve(navigator.clipboard.writeText(data.filePath)).catch(() => {});
               }
             }
-          }
-          vh = `${window.innerHeight - top}px`;
-        }
-      } catch (e) {}
-
-      const rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--dshsp-drawer-top', `${top}px`);
-      if (vh) {
-        rootStyle.setProperty('--dshsp-viewport-height', vh);
-      } else {
-        rootStyle.removeProperty('--dshsp-viewport-height');
-      }
-
-      // Panel/backdrop chỉ dùng biến của plugin (--dshsp-viewport-height, --dshsp-drawer-top)
-      if (drawerPanel) {
-        drawerPanel.style.removeProperty('top');
-        drawerPanel.style.removeProperty('height');
-      }
-      if (drawerBackdrop) {
-        drawerBackdrop.style.removeProperty('top');
-        drawerBackdrop.style.removeProperty('height');
-      }
-      return top;
+          },
+            React.createElement('span', { style: { flexShrink: 0 } }, '📁'),
+            React.createElement('span', { className: 'dsh-sp-path-text' }, fileName)
+          ),
+          React.createElement('div', { className: 'dsh-sp-foot-actions' },
+            React.createElement('span', { className: 'dsh-sp-updated' }, updated),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dsh-sp-btn',
+              title: 'Copy progress Markdown',
+              disabled: !content,
+              onClick: onCopy
+            }, copied ? '✓ Copied' : 'Copy'),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dsh-sp-btn',
+              title: 'Open progress file in the default editor',
+              disabled: !(data && data.filePath),
+              onClick: () => openProgressFile(state.sessionId)
+            }, '↗ Open')
+          )
+        )
+      );
     }
 
-    function syncDrawerContainer() {
-      if (!drawerPanel) return;
-      if (drawerPanel.parentElement !== document.body) {
-        document.body.appendChild(drawerPanel);
-      }
-    }
-
-    function ensureDrawerElements() {
-      // Clean up any stale or misplaced drawer panels (e.g. from previous sessions trapped in WidthHandle)
-      const existingPanels = document.querySelectorAll('.dsh-drawer-panel');
-      existingPanels.forEach(p => {
-        if (p !== drawerPanel) p.remove();
-      });
-      const existingBackdrops = document.querySelectorAll('.dsh-drawer-backdrop');
-      existingBackdrops.forEach(b => {
-        if (b !== drawerBackdrop) b.remove();
-      });
-
-      if (drawerPanel && drawerBackdrop) {
-        syncDrawerContainer();
-        return;
-      }
-
-      ensureStyles();
-      updateTopOffset();
-
-      drawerBackdrop = document.createElement('div');
-      drawerBackdrop.className = 'dsh-drawer-backdrop';
-      drawerBackdrop.addEventListener('click', () => closeDrawer());
-
-      drawerPanel = document.createElement('div');
-      drawerPanel.className = 'dsh-drawer-panel';
-      drawerPanel.innerHTML = `
-        <div class="dsh-drawer-resize-handle" id="dsh-drawer-resize-handle" title="Kéo để đổi độ rộng (Nhấp đúp để đặt lại)"></div>
-        <div class="dsh-drawer-header">
-          <div class="dsh-drawer-title-row">
-            <div class="dsh-drawer-title-wrap">
-              <span style="font-size: 16px;">📋</span>
-              <h3 class="dsh-drawer-title">Session Progress</h3>
-              <span class="dsh-drawer-status-badge in_progress" id="dsh-drawer-status-badge">IN PROGRESS</span>
-            </div>
-            <div class="dsh-drawer-actions">
-              <button type="button" class="dsh-drawer-btn icon-only-btn" id="dsh-refresh-btn" title="Refresh">
-                ${DSH_ICON_REFRESH}
-              </button>
-              <button type="button" class="dsh-drawer-btn close-btn icon-only-btn" id="dsh-close-drawer-btn" title="Close (Esc)">
-                ${DSH_ICON_CLOSE}
-              </button>
-            </div>
-          </div>
-          <div class="dsh-drawer-progress-box">
-            <div class="dsh-drawer-progress-label-row">
-              <span class="dsh-drawer-progress-pct" id="dsh-drawer-pct-text">0% Completed</span>
-              <span class="dsh-drawer-progress-detail" id="dsh-drawer-detail-text">0/0 tasks</span>
-            </div>
-            <div class="dsh-progress-track">
-              <div class="dsh-progress-fill" id="dsh-drawer-progress-fill"></div>
-            </div>
-            <div class="dsh-drawer-activity-row" id="dsh-drawer-activity-row" style="display:none;">
-              <span class="dsh-drawer-activity-icon">⚡</span>
-              <span class="dsh-drawer-activity-text" id="dsh-drawer-activity-text"></span>
-            </div>
-          </div>
-        </div>
-        <div class="dsh-drawer-body" id="dsh-drawer-body-content">
-          <div class="dsh-drawer-empty">
-            <div class="dsh-drawer-empty-icon">⏳</div>
-            <div>Loading session progress...</div>
-          </div>
-        </div>
-        <div class="dsh-drawer-footer">
-          <div class="dsh-drawer-path-box" id="dsh-drawer-file-path" title="Click to copy full path">
-            <span style="flex-shrink:0;">📁</span>
-            <span class="dsh-drawer-path-text" id="dsh-drawer-file-name">(No file active)</span>
-          </div>
-          <div class="dsh-drawer-footer-actions">
-            <div class="dsh-drawer-updated-box" id="dsh-drawer-last-updated">Updated: --</div>
-            <button type="button" class="dsh-drawer-btn dsh-drawer-footer-btn" id="dsh-open-file-btn" title="Open file in default editor">
-              <span>↗ Open</span>
-            </button>
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(drawerBackdrop);
-      document.body.appendChild(drawerPanel);
-
-      // Stop pointer events propagation to prevent WidthHandle [data-side="right"] from capturing resize drag
-      const stopDrag = (e) => e.stopPropagation();
-      drawerPanel.addEventListener('pointerdown', stopDrag);
-      drawerPanel.addEventListener('pointermove', stopDrag);
-      drawerPanel.addEventListener('pointerup', stopDrag);
-      drawerPanel.addEventListener('mousedown', stopDrag);
-      drawerPanel.addEventListener('mouseup', stopDrag);
-
-      // Resize Handle dragging & double click to reset
-      const resizeHandle = drawerPanel.querySelector('#dsh-drawer-resize-handle');
-      if (resizeHandle) {
-        let isResizing = false;
-        let startX = 0;
-        let startWidth = 0;
-
-        resizeHandle.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          try {
-            resizeHandle.setPointerCapture(e.pointerId);
-          } catch (err) {}
-          isResizing = true;
-          startX = e.clientX;
-          startWidth = getSavedDrawerWidth();
-          document.body.classList.add('dsh-drawer-resizing');
-        });
-
-        resizeHandle.addEventListener('pointermove', (e) => {
-          if (!isResizing) return;
-          e.preventDefault();
-          e.stopPropagation();
-          const delta = startX - e.clientX;
-          const newWidth = Math.round(startWidth + delta);
-          applyDrawerWidth(newWidth, false);
-        });
-
-        const finishResize = (e) => {
-          if (!isResizing) return;
-          isResizing = false;
-          try {
-            if (e && e.pointerId) {
-              resizeHandle.releasePointerCapture(e.pointerId);
-            }
-          } catch (err) {}
-          document.body.classList.remove('dsh-drawer-resizing');
-          applyDrawerWidth(getSavedDrawerWidth(), true);
-          try { window.dispatchEvent(new Event('resize')); } catch (err) {}
-        };
-
-        resizeHandle.addEventListener('pointerup', finishResize);
-        resizeHandle.addEventListener('pointercancel', finishResize);
-
-        resizeHandle.addEventListener('dblclick', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          applyDrawerWidth(DRAWER_DEFAULT_WIDTH, true);
-          try { window.dispatchEvent(new Event('resize')); } catch (err) {}
-        });
-      }
-
-      // Bind Drawer events
-      drawerPanel.querySelector('#dsh-open-file-btn').addEventListener('click', openProgressFile);
-      const refreshBtn = drawerPanel.querySelector('#dsh-refresh-btn');
-      refreshBtn.addEventListener('click', async () => {
-        refreshBtn.classList.add('refreshing');
-        lastRenderedContent = null;
-        try {
-          await fetchProgress(activeSessionId);
-        } finally {
-          setTimeout(() => refreshBtn.classList.remove('refreshing'), 450);
-        }
-      });
-      drawerPanel.querySelector('#dsh-close-drawer-btn').addEventListener('click', () => closeDrawer());
-
-      // Track mouse dragging / selection on drawer body
-      const bodyEl = drawerPanel.querySelector('#dsh-drawer-body-content');
-      if (bodyEl) {
-        bodyEl.addEventListener('mousedown', () => {
-          isMouseDownOnDrawer = true;
-        });
-      }
-      window.addEventListener('mouseup', () => {
-        isMouseDownOnDrawer = false;
-      });
-
-      const pathBox = drawerPanel.querySelector('#dsh-drawer-file-path');
-      pathBox.addEventListener('click', () => {
-        if (latestData?.filePath) {
-          navigator.clipboard.writeText(latestData.filePath);
-          const nameSpan = drawerPanel.querySelector('#dsh-drawer-file-name');
-          if (nameSpan) {
-            const orig = nameSpan.textContent;
-            nameSpan.textContent = '✓ Path copied!';
-            setTimeout(() => { nameSpan.textContent = orig; }, 1200);
-          }
-        }
-      });
-
-      // Escape key listener
-      window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && isDrawerOpen) {
-          closeDrawer();
-        }
-      });
-
-      window.addEventListener('resize', () => {
-        if (isDrawerOpen) {
-          syncDrawerContainer();
-          updateTopOffset();
-        }
-      });
-    }
-
-    /**
-     * Giữ transition trên container của DSH thêm một nhịp (320ms) sau khi panel đóng,
-     * để chiều thu về cũng mượt; hết nhịp thì gỡ class ⇒ khi panel đóng, stylesheet của
-     * plugin không còn match bất kỳ element nào của DSH.
-     */
-    const DRAWER_CLOSING_MS = 320;
-    let drawerClosingTimer = null;
-
-    function markDrawerClosing() {
-      clearDrawerClosing();
-      document.body.classList.add('dsh-drawer-closing');
-      drawerClosingTimer = setTimeout(() => {
-        drawerClosingTimer = null;
-        document.body.classList.remove('dsh-drawer-closing');
-      }, DRAWER_CLOSING_MS);
-    }
-
-    function clearDrawerClosing() {
-      if (drawerClosingTimer) {
-        clearTimeout(drawerClosingTimer);
-        drawerClosingTimer = null;
-      }
-      document.body.classList.remove('dsh-drawer-closing');
-    }
-
-    function openDrawer(sessionId) {
-      if (!canOpenProgressPanel()) {
-        // Brand-new session screen, or the agent has not written the progress file yet: there is
-        // nothing to display, so the panel stays closed. Refresh so it appears once the file exists.
-        fetchProgress(sessionId ?? resolveCurrentSessionId());
-        return;
-      }
-      ensureDrawerElements();
-      applyDrawerWidth(getSavedDrawerWidth(), false);
-      syncDrawerContainer();
-      updateTopOffset();
-      if (sessionId && sessionId !== activeSessionId) {
-        activeSessionId = sessionId;
-        lastRenderedContent = null;
-      }
-      clearDrawerClosing();
-      isDrawerOpen = true;
-      document.body.classList.add('dsh-drawer-open');
-      drawerBackdrop.classList.add('open');
-      drawerPanel.classList.add('open');
-      fetchProgress(activeSessionId);
-      startPolling(1500);
-      setTimeout(() => {
-        try { window.dispatchEvent(new Event('resize')); } catch (e) {}
-      }, 300);
-    }
-
-    function closeDrawer() {
-      if (!drawerPanel) return;
-      isDrawerOpen = false;
-      markDrawerClosing();
-      document.body.classList.remove('dsh-drawer-open');
-      drawerBackdrop.classList.remove('open');
-      drawerPanel.classList.remove('open');
-      startPolling(3000);
-      setTimeout(() => {
-        try { window.dispatchEvent(new Event('resize')); } catch (e) {}
-      }, 300);
-    }
-
-    function toggleDrawer(sessionId) {
-      if (isDrawerOpen) {
-        closeDrawer();
-      } else {
-        openDrawer(sessionId);
-      }
-    }
-
-    function updateDrawerUI(data) {
-      if (!drawerPanel) return;
-
-      const pctTextEl = drawerPanel.querySelector('#dsh-drawer-pct-text');
-      const detailTextEl = drawerPanel.querySelector('#dsh-drawer-detail-text');
-      const fillEl = drawerPanel.querySelector('#dsh-drawer-progress-fill');
-      const bodyEl = drawerPanel.querySelector('#dsh-drawer-body-content');
-      const pathEl = drawerPanel.querySelector('#dsh-drawer-file-path');
-      const nameEl = drawerPanel.querySelector('#dsh-drawer-file-name');
-      const updatedEl = drawerPanel.querySelector('#dsh-drawer-last-updated');
-      const statusBadge = drawerPanel.querySelector('#dsh-drawer-status-badge');
-      const actRow = drawerPanel.querySelector('#dsh-drawer-activity-row');
-      const actText = drawerPanel.querySelector('#dsh-drawer-activity-text');
-
-      if (data && data.enabled === false) {
-        if (statusBadge) {
-          statusBadge.className = 'dsh-drawer-status-badge disabled';
-          statusBadge.textContent = 'DISABLED';
-        }
-        if (pctTextEl) {
-          pctTextEl.textContent = 'Progress Disabled';
-          pctTextEl.classList.remove('done');
-        }
-        if (detailTextEl) {
-          detailTextEl.textContent = 'Tracking is paused';
-        }
-        if (fillEl) {
-          fillEl.style.width = '0%';
-          fillEl.classList.remove('done');
-        }
-        if (actRow) actRow.style.display = 'none';
-        if (bodyEl) {
-          bodyEl.innerHTML = `
-            <div class="dsh-drawer-empty">
-              <div class="dsh-drawer-empty-icon">⏸️</div>
-              <div style="font-weight:600; margin-bottom:6px; color:#e4e4e7;">Session Progress is Disabled</div>
-              <div style="color:#a1a1aa; font-size:12px; margin-bottom:14px; max-width:280px; text-align:center;">Automatic progress tracking is paused for this session to conserve prompt tokens.</div>
-              <button type="button" class="dsh-drawer-btn" id="dsh-drawer-enable-btn" style="padding:6px 14px; background:#3b82f6; color:#fff; border-color:#2563eb; cursor:pointer;">
-                ⚡ Re-enable Progress
-              </button>
-            </div>
-          `;
-          const enableBtn = bodyEl.querySelector('#dsh-drawer-enable-btn');
-          if (enableBtn) {
-            enableBtn.addEventListener('click', () => toggleSessionProgress(activeSessionId, true));
-          }
-          lastRenderedContent = null;
-        }
-        if (nameEl) {
-          nameEl.textContent = '(Progress disabled)';
-        }
-        if (updatedEl) updatedEl.textContent = 'Status: Disabled';
-        return;
-      }
-
-      if (!data) {
-        if (statusBadge) {
-          statusBadge.className = 'dsh-drawer-status-badge starting';
-          statusBadge.textContent = 'STARTING';
-        }
-        if (pctTextEl) {
-          pctTextEl.textContent = '0% Completed';
-          pctTextEl.classList.remove('done');
-        }
-        if (detailTextEl) {
-          detailTextEl.textContent = '0/0 tasks completed';
-        }
-        if (fillEl) {
-          fillEl.style.width = '0%';
-          fillEl.classList.remove('done');
-        }
-        if (actRow) actRow.style.display = 'none';
-        if (bodyEl) {
-          bodyEl.innerHTML = renderMarkdownToHtml('');
-          lastRenderedContent = null;
-        }
-        if (nameEl) {
-          nameEl.textContent = '(No file active)';
-        } else if (pathEl) {
-          pathEl.innerHTML = '<span style="flex-shrink:0;">📁</span><span class="dsh-drawer-path-text">(No file active)</span>';
-        }
-        if (updatedEl) updatedEl.textContent = 'Updated: --';
-        return;
-      }
-
-      const pct = typeof data?.percent === 'number' ? data.percent : 0;
-      if (statusBadge) {
-        const st = (data?.status || (pct === 100 ? 'completed' : 'in_progress')).toLowerCase();
-        statusBadge.className = `dsh-drawer-status-badge ${st}`;
-        statusBadge.textContent = st.replace(/_/g, ' ');
-      }
-
-      if (pctTextEl) {
-        pctTextEl.textContent = `${pct}% Completed`;
-        if (pct === 100) pctTextEl.classList.add('done');
-        else pctTextEl.classList.remove('done');
-      }
-
-      if (detailTextEl) {
-        const total = data?.tasksTotal || 0;
-        const done = data?.tasksDone || 0;
-        if (total > 0) {
-          detailTextEl.textContent = `${done}/${total} tasks completed`;
-        } else {
-          detailTextEl.textContent = 'Checklist not specified';
-        }
-      }
-
-      if (fillEl) {
-        fillEl.style.width = `${pct}%`;
-        if (pct === 100) fillEl.classList.add('done');
-        else fillEl.classList.remove('done');
-      }
-
-      if (actRow && actText) {
-        if (data?.currentActivity) {
-          actText.textContent = data.currentActivity;
-          actRow.style.display = 'flex';
-        } else {
-          actRow.style.display = 'none';
-        }
-      }
-
-      if (bodyEl) {
-        const newContent = data?.content || '';
-        const currentSid = data?.sessionId || activeSessionId;
-
-        if (currentSid && currentSid !== lastRenderedSessionId) {
-          lastRenderedContent = null;
-          lastRenderedSessionId = currentSid;
-        }
-
-        // Check if user has an active text selection inside bodyEl or is dragging mouse
-        const selection = window.getSelection();
-        const hasActiveSelection = Boolean(
-          isMouseDownOnDrawer ||
-          (selection && !selection.isCollapsed && selection.rangeCount > 0 &&
-            (bodyEl.contains(selection.anchorNode) || bodyEl.contains(selection.focusNode)))
-        );
-
-        if (newContent !== lastRenderedContent) {
-          // If user is actively selecting or highlighting text, postpone re-rendering to prevent clearing selection
-          if (!hasActiveSelection) {
-            const prevScrollTop = bodyEl.scrollTop;
-            bodyEl.innerHTML = renderMarkdownToHtml(newContent);
-            bodyEl.scrollTop = prevScrollTop;
-            lastRenderedContent = newContent;
-          }
-        }
-      }
-
-      if (pathEl) {
-        const rawName = data?.fileName || '(No file active)';
-        let shortName = rawName;
-        if (rawName.length > 32) {
-          shortName = rawName.slice(0, 15) + '...' + rawName.slice(-10);
-        }
-        if (nameEl) {
-          nameEl.textContent = shortName;
-        } else {
-          pathEl.innerHTML = `<span style="flex-shrink:0;">📁</span><span class="dsh-drawer-path-text">${escapeHtml(shortName)}</span>`;
-        }
-        pathEl.title = data?.filePath ? `Click to copy path: ${data.filePath}` : 'No file active';
-      }
-
-      if (updatedEl && data?.lastModified) {
-        const d = new Date(data.lastModified);
-        updatedEl.textContent = `Updated: ${d.toLocaleTimeString()}`;
-      }
-    }
+    // ============================================================================
+    // Composer trailing toolbar trigger (DOM-mounted control)
+    // ============================================================================
 
     function updateHeaderButtonUI(pct, hasFile, isEnabled) {
       const currentSid = resolveCurrentSessionId() || 'default';
@@ -2069,8 +1601,8 @@ window.__ModuleLoader__.load({
         isEnabled = isSessionEnabled(currentSid);
       }
 
-      // Purge any button on titlebar, header, or inside drawer
-      document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
+      // Purge any button on the titlebar or header
+      document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button')
         .forEach(el => el.remove());
 
       let btn = document.querySelector('.dsh-session-progress-button');
@@ -2100,11 +1632,6 @@ window.__ModuleLoader__.load({
         document.body.appendChild(btn);
       }
 
-      // The control stays mounted on every screen (its popover carries the on/off switch for new
-      // sessions), but the side panel is only meaningful for a session that owns a progress file.
-      if (isDrawerOpen && !canOpenProgressPanel()) {
-        closeDrawer();
-      }
       if (!shouldShowProgressTrigger()) {
         btn.style.display = 'none';
         return;
@@ -2114,7 +1641,7 @@ window.__ModuleLoader__.load({
       btn.removeAttribute('title'); // Prevent native OS tooltip overlapping the custom UI
 
       const ringFill = btn.querySelector('.dsh-progress-ring-fill');
-      const circumference = 34.56;
+      const circumference = RING_CIRCUMFERENCE;
       const pill = btn.querySelector('.dsh-progress-pill');
       let tooltip = btn.querySelector('#dsh-progress-btn-tooltip');
       if (!tooltip) {
@@ -2196,6 +1723,7 @@ window.__ModuleLoader__.load({
               <span class="dsh-progress-tooltip-title">Current Activity</span>
             </div>
             <div class="dsh-progress-tooltip-body">${escapeHtml(activity)}</div>
+            <div class="dsh-progress-tooltip-hint">Click to open the progress panel</div>
             <div class="dsh-tooltip-toggle-row">
               <span class="dsh-tooltip-toggle-label">
                 <span>⚡ Session Progress</span>
@@ -2210,7 +1738,7 @@ window.__ModuleLoader__.load({
               <span class="dsh-progress-tooltip-badge ${isDone ? 'done' : ''}">${numPct}%</span>
               <span class="dsh-progress-tooltip-title">Session Progress</span>
             </div>
-            <div class="dsh-progress-tooltip-hint">Click to view details</div>
+            <div class="dsh-progress-tooltip-hint">Click to open the progress panel</div>
             <div class="dsh-tooltip-toggle-row">
               <span class="dsh-tooltip-toggle-label">
                 <span>⚡ Session Progress</span>
@@ -2241,12 +1769,12 @@ window.__ModuleLoader__.load({
         }
       }
 
-      // Stop clicks/mouse events inside tooltip from bubbling to btn (which would trigger drawer toggle)
+      // Stop clicks/mouse events inside tooltip from bubbling to btn (which would open the panel)
       tooltip.onclick = (e) => {
-        // If clicking specifically on "Click to view details" hint, toggle drawer
+        // If clicking specifically on the "open the panel" hint, reveal the right sidebar tab
         if (e.target.closest('.dsh-progress-tooltip-hint')) {
           e.stopPropagation();
-          toggleDrawer(resolveCurrentSessionId());
+          openProgressPanel();
           return;
         }
         e.stopPropagation();
@@ -2272,17 +1800,9 @@ window.__ModuleLoader__.load({
         const currentSid = resolveCurrentSessionId();
         if (currentSid !== activeSessionId) {
           activeSessionId = currentSid;
-          lastRenderedContent = null;
-          lastRenderedSessionId = currentSid;
         }
         fetchProgress(activeSessionId);
       }, intervalMs);
-    }
-
-    // --- Native Slot Handler: Do NOT render on Title Bar ---
-    function SessionProgressHeaderAction() {
-      // User requested moving progress button to composer toolbar
-      return null;
     }
 
     function createProgressButton() {
@@ -2294,26 +1814,25 @@ window.__ModuleLoader__.load({
       btn.style.display = shouldShowProgressTrigger() ? 'inline-flex' : 'none';
       btn.setAttribute('aria-label', `Session Progress: ${hasFile ? latestPercent + '%' : 'Ready'}`);
 
-      const circumference = 34.56;
-      const offset = circumference * (1 - Math.min(100, Math.max(0, latestPercent)) / 100);
+      const offset = RING_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, latestPercent)) / 100);
       const isDone = hasFile && latestPercent === 100;
 
       btn.innerHTML = `
         <svg class="dsh-progress-ring" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">
           <circle class="dsh-progress-ring-track" cx="7" cy="7" r="5.5"></circle>
-          <circle class="dsh-progress-ring-fill ${isDone ? 'done' : ''}" cx="7" cy="7" r="5.5" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle>
+          <circle class="dsh-progress-ring-fill ${isDone ? 'done' : ''}" cx="7" cy="7" r="5.5" stroke-dasharray="${RING_CIRCUMFERENCE}" stroke-dashoffset="${offset}"></circle>
         </svg>
         <span class="dsh-progress-pill ${isDone ? 'done' : ''}" style="${hasFile ? '' : 'display:none;'}">${hasFile ? latestPercent + '%' : ''}</span>
         <div class="dsh-progress-tooltip" id="dsh-progress-btn-tooltip"></div>
       `;
       btn.addEventListener('click', (e) => {
-        // If the click originated inside the tooltip/popover, do NOT toggle drawer
+        // If the click originated inside the tooltip/popover, do NOT open the panel
         if (e.target.closest('#dsh-progress-btn-tooltip, .dsh-progress-tooltip')) {
           e.stopPropagation();
           return;
         }
         e.stopPropagation();
-        toggleDrawer(resolveCurrentSessionId());
+        openProgressPanel();
       });
       return btn;
     }
@@ -2324,30 +1843,25 @@ window.__ModuleLoader__.load({
     function isProgressPluginNode(node) {
       if (!node || node.nodeType !== 1) return false;
       const cls = node.className;
-      if (typeof cls === 'string' && (cls.includes('dsh-session-progress') || cls.includes('dsh-drawer') || cls.includes('dsh-progress'))) return true;
+      if (typeof cls === 'string' && (cls.includes('dsh-session-progress') || cls.includes('dsh-progress') || cls.includes('dsh-sp-'))) return true;
       if (node.classList && (
         node.classList.contains('dsh-session-progress-button') ||
-        node.classList.contains('dsh-drawer-overlay') ||
-        node.classList.contains('dsh-drawer-panel') ||
         node.classList.contains('dsh-progress-tooltip')
       )) return true;
       return false;
     }
 
-    function ensureFallbackButton() {
+    function ensureProgressButton() {
       if (isUpdatingProgressDOM) return;
       isUpdatingProgressDOM = true;
       try {
         // Remove any legacy titlebar buttons
-        document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button, .dsh-drawer-panel .dsh-session-progress-button, .dsh-drawer-header .dsh-session-progress-button')
+        document.querySelectorAll('header .dsh-session-progress-button, [class*="utilities"] .dsh-session-progress-button')
           .forEach(el => el.remove());
 
         const hasFile = Boolean(latestData && latestData.found && latestData.hasFile);
         const isEnabled = isSessionEnabled(resolveCurrentSessionId());
         updateHeaderButtonUI(latestPercent, hasFile, isEnabled);
-        if (isDrawerOpen) {
-          syncDrawerContainer();
-        }
       } finally {
         Promise.resolve().then(() => {
           isUpdatingProgressDOM = false;
@@ -2355,21 +1869,41 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function scheduleFallbackButton() {
+    function scheduleProgressButton() {
       if (progressDebounceTimer) return;
       progressDebounceTimer = setTimeout(() => {
         progressDebounceTimer = null;
-        ensureFallbackButton();
+        ensureProgressButton();
       }, 300);
     }
 
-    // Export module apply & inject
-    exports.inject = ['slots', 'sessions'];
+    // Exported plugin: services, then the slot registrations that make the panel a
+    // native right-Sidebar tab, then the composer trigger and its refresh loop.
+    exports.inject = ['slots', 'sessions', 'sidebarRightTabs', 'sidebarRight'];
     exports.apply = function(ctx) {
-      console.log('[dsh-session-progress] client plugin loaded with bottom-right floating pill...');
+      console.log('[dsh-session-progress] client plugin loaded (native right sidebar tab).');
       cordisCtx = ctx;
       ensureStyles();
-      ensureDrawerElements();
+
+      // 1. The tab type: its id is the entry key the two keyed seats dispatch on, its
+      //    kind is what `openTab` opens, and its title is the chip fallback text.
+      ctx.effect(() => ctx.sidebarRightTabs.register({
+        id: TAB_ID,
+        kind: TAB_KIND,
+        priority: 'extension',
+        title: () => TAB_TITLE
+      }), 'dsh-session-progress: right sidebar tab type');
+
+      // 2. The tab body and its live chip title, both keyed by our tab id.
+      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+        name: 'sidebar.right.pane.tab',
+        key: TAB_ID
+      }, ProgressTabBody)), 'dsh-session-progress: right sidebar tab body');
+
+      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+        name: 'sidebar.right.pane.tab.title',
+        key: TAB_ID
+      }, ProgressTabTitle)), 'dsh-session-progress: right sidebar tab title');
 
       // Subscribe to sessions service changes if available
       try {
@@ -2378,13 +1912,10 @@ window.__ModuleLoader__.load({
             const currentId = ctx.sessions?.list?.getSnapshot?.()?.current || null;
             if (currentId !== activeSessionId) {
               activeSessionId = currentId;
-              lastRenderedContent = null;
-              lastRenderedSessionId = currentId;
               if (!currentId) {
                 latestData = null;
                 latestPercent = 0;
                 notifySubscribers();
-                updateDrawerUI(null);
                 updateHeaderButtonUI(0, false, isSessionEnabled(currentId));
               } else {
                 fetchProgress(currentId);
@@ -2399,7 +1930,7 @@ window.__ModuleLoader__.load({
       startPolling(3000);
 
       // Observer with multi-layer shield to prevent infinite mutation loops
-      ensureFallbackButton();
+      ensureProgressButton();
       const observer = new MutationObserver((mutations) => {
         if (isUpdatingProgressDOM) return;
 
@@ -2409,9 +1940,7 @@ window.__ModuleLoader__.load({
           if (target && target.nodeType === 1) {
             if (
               isProgressPluginNode(target) ||
-              target.closest?.('.dsh-session-progress-button') ||
-              target.closest?.('.dsh-drawer-overlay') ||
-              target.closest?.('.dsh-drawer-panel')
+              target.closest?.('.dsh-session-progress-button')
             ) {
               continue;
             }
@@ -2429,7 +1958,7 @@ window.__ModuleLoader__.load({
           break;
         }
         if (relevant) {
-          scheduleFallbackButton();
+          scheduleProgressButton();
         }
       });
 

@@ -7,7 +7,7 @@
 ## 1. Purpose & Overview
 
 <p align="center">
-  <img src="assets/preview.png" alt="Session Progress Drawer Preview" width="800" />
+  <img src="assets/preview.png" alt="Session Progress panel rendered as a native right sidebar tab" width="800" />
 </p>
 
 <p align="center">
@@ -16,7 +16,20 @@
 
 **dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
 
-In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs. 
+In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs.
+
+### How it appears
+
+The plugin renders **inside DSH's own right sidebar** — it does not draw an overlay of its own, so it never fights the frame for space:
+
+| Surface | Where it lives |
+| --- | --- |
+| Progress ring + `%` pill | The composer trailing toolbar, beside the context meter |
+| Progress panel | A native right sidebar tab named **Session Progress** |
+
+Clicking the composer control (or the *Click to open the progress panel* hint in its popover) opens that tab and reveals the right column. Being an ordinary sidebar tab, it docks, floats, splits, and follows the session exactly like Files or the document preview.
+
+> **Requirement**: the right sidebar tab slots (`rightbar.session`, `sidebar.right.pane.tab`) must exist in your DSH build — DSH Desktop 0.9.0 or newer.
 
 ---
 

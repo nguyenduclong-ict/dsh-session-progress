@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-progress",
-  "version": "0.9.0",
-  "description": "Session progress tracker with System Prompt injection and Slide-over Drawer for DeepSeek Harness",
+  "version": "0.10.1",
+  "description": "Session progress tracker with System Prompt injection and a native right Sidebar tab for DeepSeek Harness",
   "type": "module",
   "main": "./index.js",
   "repository": {
@@ -15,7 +15,9 @@
     "session",
     "progress",
     "markdown",
-    "drawer",
+    "sidebar",
+    "rightbar",
+    "tab",
     "ui"
   ],
   "author": "nguyenduclong-ict",
@@ -33,7 +35,8 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-ui-session"
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
       ],
       "immediately": true,
       "platform": "web"
@@ -42,6 +45,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.2-alpha.1",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.2-alpha.1",
     "@deepseek-ai/dsh-system-prompt": "^0.1.2-rc.1"
   }

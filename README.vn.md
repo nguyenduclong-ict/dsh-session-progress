@@ -7,7 +7,7 @@
 ## 1. Mô tả công dụng của Plugin
 
 <p align="center">
-  <img src="assets/preview.png" alt="Giao diện Slide-over Drawer của dsh-session-progress" width="800" />
+  <img src="assets/preview.png" alt="Panel Session Progress hiển thị dưới dạng tab native của right sidebar" width="800" />
 </p>
 
 <p align="center">
@@ -17,6 +17,19 @@
 **dsh-session-progress** là plugin theo dõi tiến độ công việc và phiên làm việc theo thời gian thực dành cho **DeepSeek Harness (DSH / DSH Desktop)**.
 
 Trong các phiên làm việc dài hoặc xử lý chuỗi tác vụ phức tạp, người dùng thường gặp khó khăn trong việc nắm bắt tiến độ tổng thể, các đầu việc đã hoàn thành hay công việc đang chạy nếu chỉ nhìn vào luồng chat dài.
+
+### Vị trí hiển thị
+
+Plugin render **ngay trong right sidebar của DSH** — không tự vẽ lớp phủ riêng nên không tranh chỗ với layout của app:
+
+| Thành phần | Vị trí |
+| --- | --- |
+| Vòng tròn tiến độ + pill `%` | Thanh công cụ cạnh ô nhập liệu, kế bên context meter |
+| Panel tiến độ | Tab native của right sidebar, tên **Session Progress** |
+
+Bấm nút trên thanh nhập liệu (hoặc dòng *Click to open the progress panel* trong popover) sẽ mở tab đó và mở rộng cột phải. Vì là tab thật của sidebar, nó dock/float/split và bám theo session giống tab Files hay Document Preview.
+
+> **Yêu cầu**: bản DSH phải có slot tab của right sidebar (`rightbar.session`, `sidebar.right.pane.tab`) — tức DSH Desktop 0.9.0 trở lên.
 
 ---
 
