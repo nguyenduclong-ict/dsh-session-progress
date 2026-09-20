@@ -1429,7 +1429,9 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'dsh-sp-head' },
           React.createElement('div', { className: 'dsh-sp-detail' },
             state.enabled
-              ? (tasksTotal > 0 ? `${tasksDone}/${tasksTotal} tasks completed` : 'Checklist not specified')
+              ? (tasksTotal > 0
+                  ? `${tasksDone}/${tasksTotal} tasks completed (${state.percent}%)`
+                  : `Checklist not specified (${state.percent}%)`)
               : 'Tracking is paused'),
           React.createElement('div', { className: 'dsh-progress-track' },
             React.createElement('div', {

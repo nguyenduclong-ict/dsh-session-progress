@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-progress",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "description": "Session progress tracker with System Prompt injection and a native right Sidebar tab for DeepSeek Harness",
   "type": "module",
   "main": "./index.js",
