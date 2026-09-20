@@ -338,17 +338,6 @@ window.__ModuleLoader__.load({
           white-space: nowrap;
         }
 
-        .dsh-sp-title-pct {
-          font-size: 11px;
-          font-weight: 600;
-          color: #60a5fa;
-          flex: none;
-        }
-
-        .dsh-sp-title-pct.done {
-          color: #4ade80;
-        }
-
         /* --- Panel header --- */
         .dsh-sp-head {
           flex: none;
@@ -1442,16 +1431,20 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** The tab chip: ring, label, live percentage. */
+    /**
+     * The tab chip: the progress ring plus the tab name.
+     *
+     * The percentage deliberately stays out of the chip. The dock caps a chip's
+     * width and clips whatever overflows, and it is not a flex box we can ask to
+     * shrink first, so a trailing number gets cut mid-digits ("100%" rendered as
+     * "10"). The ring carries the same reading — filled proportionally, green at
+     * 100% — and the exact number is in the panel header one click away.
+     */
     function ProgressTabTitle(props) {
       const state = useProgressState(props.sessionId);
-      const isDone = state.hasFile && state.percent === 100;
       return React.createElement('span', { className: 'dsh-sp-title' },
         React.createElement(ProgressRing, { percent: state.hasFile ? state.percent : 0 }),
-        React.createElement('span', { className: 'dsh-sp-title-text' }, TAB_TITLE),
-        state.hasFile
-          ? React.createElement('span', { className: `dsh-sp-title-pct${isDone ? ' done' : ''}` }, `${state.percent}%`)
-          : null
+        React.createElement('span', { className: 'dsh-sp-title-text' }, TAB_TITLE)
       );
     }
 
