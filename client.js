@@ -10,9 +10,6 @@ window.__ModuleLoader__.load({
 
     const STYLE_ID = 'dsh-session-progress-style';
 
-    // DSH Native SVG Icons from @deepseek-ai/dsh-client-ui-primitives
-    const DSH_ICON_REFRESH = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M1.272 6.21348C1.70645 3.08888 4.59169 0.908064 7.71634 1.34239C8.95495 1.51469 10.0438 2.07331 10.8814 2.87755L11.9458 1.81407C12.1347 1.6255 12.4572 1.75911 12.4575 2.02598V5.08751C12.4574 5.25303 12.3233 5.38731 12.1577 5.38731H9.0972C8.82993 5.38731 8.69629 5.06361 8.88528 4.87462L10.0327 3.72618C9.3732 3.09994 8.52006 2.66569 7.5513 2.53087C5.08313 2.18779 2.80376 3.91044 2.46048 6.37852C2.11747 8.84665 3.84009 11.1261 6.30814 11.4693C8.77612 11.8121 11.0557 10.0896 11.399 7.62169L11.9937 7.70372L12.5874 7.78673C12.153 10.9112 9.26756 13.0919 6.1431 12.6578C3.01854 12.2234 0.837738 9.33809 1.272 6.21348Z" fill="currentColor"/></svg>`;
-
     /**
      * Identity of this plugin inside DSH's right Sidebar tab system.
      *
@@ -349,72 +346,9 @@ window.__ModuleLoader__.load({
           background: var(--dsw-alias-bg-floating, #18181b);
         }
 
-        .dsh-sp-head-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          min-width: 0;
-        }
-
-        .dsh-sp-head-left {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          min-width: 0;
-          flex: 1;
-          overflow: hidden;
-        }
-
-        .dsh-sp-badge {
-          font-size: 10px;
-          font-weight: 600;
-          padding: 2px 7px;
-          border-radius: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          background: rgba(59, 130, 246, 0.15);
-          color: #60a5fa;
-          border: 1px solid rgba(59, 130, 246, 0.3);
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
-
-        .dsh-sp-badge.completed {
-          background: rgba(34, 197, 94, 0.15);
-          color: #4ade80;
-          border-color: rgba(34, 197, 94, 0.3);
-        }
-
-        .dsh-sp-badge.blocked,
-        .dsh-sp-badge.paused {
-          background: rgba(234, 179, 8, 0.15);
-          color: #facc15;
-          border-color: rgba(234, 179, 8, 0.3);
-        }
-
-        .dsh-sp-badge.disabled {
-          background: rgba(113, 113, 122, 0.18);
-          color: #a1a1aa;
-          border-color: rgba(113, 113, 122, 0.35);
-        }
-
-        .dsh-sp-pct {
-          font-size: 12px;
-          font-weight: 700;
-          color: #60a5fa;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .dsh-sp-pct.done {
-          color: #4ade80;
-        }
-
         .dsh-sp-detail {
-          font-size: 11px;
-          color: var(--dsw-alias-label-tertiary, #71717a);
+          font-size: 12px;
+          color: var(--dsw-alias-label-secondary, #a1a1aa);
         }
 
         .dsh-progress-track {
@@ -485,27 +419,6 @@ window.__ModuleLoader__.load({
 
         .dsh-sp-btn:active {
           transform: scale(0.96);
-        }
-
-        .dsh-sp-btn.icon-only-btn {
-          width: 26px;
-          height: 26px;
-          padding: 0;
-        }
-
-        .dsh-sp-btn.icon-only-btn svg {
-          display: block;
-          flex: none;
-          pointer-events: none;
-        }
-
-        .dsh-sp-btn.refreshing svg {
-          animation: dsh-btn-spin 0.65s linear infinite;
-        }
-
-        @keyframes dsh-btn-spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
         }
 
         .dsh-sp-btn.primary {
@@ -1451,7 +1364,6 @@ window.__ModuleLoader__.load({
     /** The tab body: the session progress panel itself. */
     function ProgressTabBody(props) {
       const state = useProgressState(props.sessionId);
-      const [refreshing, setRefreshing] = React.useState(false);
       const [copied, setCopied] = React.useState(false);
       const bodyRef = React.useRef(null);
       const scrollRef = React.useRef(0);
@@ -1471,11 +1383,6 @@ window.__ModuleLoader__.load({
         if (el && el.scrollTop !== scrollRef.current) el.scrollTop = scrollRef.current;
       }, [html]);
 
-      const onRefresh = () => {
-        setRefreshing(true);
-        Promise.resolve(fetchProgress(state.sessionId)).finally(() => setRefreshing(false));
-      };
-
       const onCopy = () => {
         if (!content) return;
         Promise.resolve(navigator.clipboard.writeText(content)).then(() => {
@@ -1484,8 +1391,6 @@ window.__ModuleLoader__.load({
         }).catch(() => {});
       };
 
-      const status = String((data && data.status) || (state.percent === 100 ? 'completed' : 'in_progress'))
-        .toLowerCase();
       const tasksTotal = (data && data.tasksTotal) || 0;
       const tasksDone = (data && data.tasksDone) || 0;
       const activity = data && data.currentActivity;
@@ -1522,24 +1427,6 @@ window.__ModuleLoader__.load({
 
       return React.createElement('div', { className: 'dsh-sp-panel', 'data-dsh-sp-panel': true },
         React.createElement('div', { className: 'dsh-sp-head' },
-          React.createElement('div', { className: 'dsh-sp-head-top' },
-            React.createElement('div', { className: 'dsh-sp-head-left' },
-              React.createElement('span', {
-                className: `dsh-sp-badge ${state.enabled ? status : 'disabled'}`
-              }, state.enabled ? status.replace(/_/g, ' ') : 'disabled'),
-              React.createElement('span', {
-                className: `dsh-sp-pct${state.hasFile && state.percent === 100 ? ' done' : ''}`
-              }, state.enabled ? `${state.percent}% Completed` : 'Progress Disabled')
-            ),
-            React.createElement('button', {
-              type: 'button',
-              className: `dsh-sp-btn icon-only-btn${refreshing ? ' refreshing' : ''}`,
-              title: 'Refresh',
-              'aria-label': 'Refresh session progress',
-              onClick: onRefresh,
-              dangerouslySetInnerHTML: { __html: DSH_ICON_REFRESH }
-            })
-          ),
           React.createElement('div', { className: 'dsh-sp-detail' },
             state.enabled
               ? (tasksTotal > 0 ? `${tasksDone}/${tasksTotal} tasks completed` : 'Checklist not specified')
