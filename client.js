@@ -306,7 +306,14 @@ window.__ModuleLoader__.load({
            Panel fills the dock surface: header / scrolling body / footer.
            ============================================================ */
         .dsh-sp-panel {
-          flex: 1;
+          /* Mirror the shipped tab bodies (see the Files tab root): the dock wraps
+             bodies in a box whose height is definite but which is NOT always a flex
+             container, so flex alone lets the panel grow to its content height and
+             the header/footer scroll away with the body. height:100% pins the panel
+             to the pane, and flex:auto still fills a flex parent. */
+          flex: auto;
+          height: 100%;
+          box-sizing: border-box;
           min-width: 0;
           min-height: 0;
           display: flex;
@@ -526,11 +533,13 @@ window.__ModuleLoader__.load({
         }
 
         /* --- Panel body (scroll container) --- */
+        /* The scrolling half. Deliberately NOT a flex container: a lone flex child
+           inside a scrolling column gets squashed by flex-shrink instead of
+           overflowing, which leaves nothing to scroll. The shipped Files tab body
+           is a plain block scroller for the same reason. */
         .dsh-sp-body {
-          flex: 1;
+          flex: auto;
           min-height: 0;
-          display: flex;
-          flex-direction: column;
           overflow-y: auto;
           overflow-x: hidden;
           box-sizing: border-box;
@@ -555,7 +564,10 @@ window.__ModuleLoader__.load({
 
         /* Empty / disabled states */
         .dsh-sp-empty {
-          flex: 1;
+          /* min-height (not flex) so the block scroller above still centres the
+             state vertically without becoming a flex container. */
+          min-height: 100%;
+          box-sizing: border-box;
           display: flex;
           flex-direction: column;
           align-items: center;
