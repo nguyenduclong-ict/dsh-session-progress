@@ -23,6 +23,9 @@ let defaultEnabled = true;
 /** The scope key the UI uses for the "applies to new sessions" toggle. */
 export const DEFAULT_SCOPE = 'default';
 
+/** Harness 0.1.7 (Desktop v0.10.0) spells agent/UI session ids `session-<uuid>`. */
+export const SESSION_ID_PREFIX = 'session-';
+
 function loadSettings() {
   try {
     if (!fs.existsSync(SETTINGS_FILE)) return;
@@ -320,6 +323,42 @@ function findExistingSessionProgress(sessionId) {
     }
   } catch (e) {}
 
+  return null;
+}
+
+/**
+ * Spellings of one session id. Harness 0.1.7 (Desktop v0.10.0) prefixes agent/UI session ids
+ * with "session-", while files written by earlier versions carry the bare UUID — so a lookup
+ * that only tries the id it was handed reports "no progress file" for the very file that is
+ * on disk. The given spelling stays first, so an exact match always wins.
+ */
+export function sessionIdVariants(sessionId) {
+  const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!id || id === 'default' || id === 'undefined' || id === 'null') return [];
+  if (id.startsWith(SESSION_ID_PREFIX)) {
+    const bare = id.slice(SESSION_ID_PREFIX.length);
+    return bare ? [id, bare] : [id];
+  }
+  return [id, `${SESSION_ID_PREFIX}${id}`];
+}
+
+/**
+ * Find the record for any spelling of `sessionId`, preferring an exact hit. Read-only: a
+ * variant lookup never reserves a path for a session that has no file yet.
+ */
+function findSessionProgressByAnyId(sessionId) {
+  for (const candidate of sessionIdVariants(sessionId)) {
+    const cached = sessionProgressMap.get(candidate);
+    if (cached?.filePath && fs.existsSync(cached.filePath)) {
+      return { record: cached, sessionId: candidate };
+    }
+  }
+  for (const candidate of sessionIdVariants(sessionId)) {
+    const found = findExistingSessionProgress(candidate);
+    if (found?.filePath && fs.existsSync(found.filePath)) {
+      return { record: found, sessionId: candidate };
+    }
+  }
   return null;
 }
 
@@ -1692,7 +1731,7 @@ export function buildProgressReadTool() {
         content: ''
       };
 
-      const record = findExistingSessionProgress(sessionId);
+      const record = findSessionProgressByAnyId(sessionId)?.record;
       if (!record?.filePath) return empty;
 
       const content = fs.readFileSync(record.filePath, 'utf-8');
@@ -1909,7 +1948,7 @@ export function buildProgressStatusTool() {
       const requested = Number(args?.upcoming);
       const limit = Number.isFinite(requested) ? Math.max(1, Math.min(10, Math.round(requested))) : 3;
 
-      const record = findExistingSessionProgress(sessionId);
+      const record = findSessionProgressByAnyId(sessionId)?.record;
       if (!record?.filePath) {
         return {
           exists: false,
@@ -2011,7 +2050,7 @@ export function buildProgressCheckDoneTool() {
     }),
     execute(args, exec) {
       const sessionId = toolSessionId(exec, PROGRESS_CHECK_DONE_TOOL_NAME);
-      const record = findExistingSessionProgress(sessionId);
+      const record = findSessionProgressByAnyId(sessionId)?.record;
       if (!record?.filePath) {
         throw new Error(
           `${PROGRESS_CHECK_DONE_TOOL_NAME} has no progress file for this session yet: create it first with ${PROGRESS_WRITE_TOOL_NAME} ({ content: "<the complete document>" }).`
@@ -2302,13 +2341,21 @@ export function apply(ctx, config = {}) {
     if (targetPath && fs.existsSync(targetPath)) {
       effectiveSessionId = qSessionId || 'default';
     } else if (qSessionId && qSessionId !== 'default' && qSessionId !== 'undefined' && qSessionId !== 'null') {
-      record = sessionProgressMap.get(qSessionId);
-      if (!record || !fs.existsSync(record.filePath)) {
+      // Look the id up under every spelling it has had across harness versions (the
+      // "session-" prefix), so a UI that names the session differently still finds its file.
+      const hit = findSessionProgressByAnyId(qSessionId);
+      if (hit) {
+        record = hit.record;
+        targetPath = hit.record.filePath;
+        effectiveSessionId = hit.sessionId;
+      } else {
+        // No file yet: reserve the path for this spelling, which is what keeps the panel on
+        // its empty state instead of confusing two sessions.
         record = getOrCreateSessionProgress(qSessionId);
-      }
-      if (record?.filePath && fs.existsSync(record.filePath)) {
-        targetPath = record.filePath;
-        effectiveSessionId = qSessionId;
+        if (record?.filePath && fs.existsSync(record.filePath)) {
+          targetPath = record.filePath;
+          effectiveSessionId = record.sessionId || qSessionId;
+        }
       }
     }
 

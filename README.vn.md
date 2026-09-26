@@ -30,6 +30,8 @@ Plugin render **ngay trong right sidebar của DSH** — không tự vẽ lớp 
 Bấm nút trên thanh nhập liệu (hoặc dòng *Click to open the progress panel* trong popover) sẽ mở tab đó và mở rộng cột phải. Vì là tab thật của sidebar, nó dock/float/split và bám theo session giống tab Files hay Document Preview.
 
 > **Yêu cầu**: bản DSH phải có slot tab của right sidebar (`rightbar.session`, `sidebar.right.pane.tab`) — tức DSH Desktop 0.9.0 trở lên.
+>
+> **Ghi chú tương thích (v0.10.6)**: DSH Desktop 0.10.0 (harness 0.1.7) đổi nguồn session id hiện tại và thêm tiền tố `session-` cho session id. Client giờ lấy session hiện tại qua `uiSession`, host chấp nhận cả hai cách viết id, đồng thời vẫn hỗ trợ hình dạng dữ liệu của 0.9.x/0.10.0.
 
 ---
 

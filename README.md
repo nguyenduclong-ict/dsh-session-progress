@@ -30,6 +30,8 @@ The plugin renders **inside DSH's own right sidebar** — it does not draw an ov
 Clicking the composer control (or the *Click to open the progress panel* hint in its popover) opens that tab and reveals the right column. Being an ordinary sidebar tab, it docks, floats, splits, and follows the session exactly like Files or the document preview.
 
 > **Requirement**: the right sidebar tab slots (`rightbar.session`, `sidebar.right.pane.tab`) must exist in your DSH build — DSH Desktop 0.9.0 or newer.
+>
+> **Compatibility note (v0.10.6)**: DSH Desktop 0.10.0 (harness 0.1.7) renamed the session id source and prefixed session ids with `session-`. The client now reads the current session through `uiSession` and the host accepts either id spelling, while the 0.9.x/0.10.0 shapes both stay supported.
 
 ---
 

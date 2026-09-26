@@ -874,19 +874,33 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Resolve the current Session ID from Cordis, URL, or DOM
+     * Resolve the current Session ID from Cordis, URL, or DOM.
+     *
+     * 0.1.7 (Desktop v0.10.0) replaced the session list's `current` scalar with a
+     * controller-owned `{ ids, byId, phase, projectionsBySession }` snapshot and gates
+     * service access on the declared `inject` list, so `uiSession` is declared in
+     * `exports.inject` and asked first — it is exactly what the shipped right-sidebar panel
+     * reads. The older shapes stay as fallbacks so 0.1.6 and earlier keep working.
      */
     function resolveCurrentSessionId() {
       // 1. From Cordis services
       if (cordisCtx) {
+        // 0.1.7: the Session the main view retains is the app's own notion of "current".
+        try {
+          const s = cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.key;
+          if (s) return s;
+        } catch (e) {}
+        // <= 0.1.6: a `current` scalar on the session list snapshot.
         try {
           const current = cordisCtx.sessions?.list?.getSnapshot?.()?.current;
           if (current) return current;
         } catch (e) {}
+        // 0.1.7 without the uiSession service: rebuild its own rule from the list snapshot —
+        // the first row the main view retains. Read-only, so a brand-new session screen (no
+        // row retained yet) stays unresolved instead of naming a random session.
         try {
-          const s = cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.key ||
-                    cordisCtx.uiSession?.adapter?.current?.getSnapshot?.()?.sessionId;
-          if (s) return s;
+          const id = retainedSessionId(cordisCtx, cordisCtx.sessions?.list?.getSnapshot?.());
+          if (id) return id;
         } catch (e) {}
         try {
           const s = cordisCtx.uiWorkspace?.sessions?.list?.getSnapshot?.()?.current;
@@ -902,7 +916,13 @@ window.__ModuleLoader__.load({
         if (searchMatch && searchMatch[1]) return searchMatch[1];
       } catch (e) {}
 
-      // 3. DOM inspection for active session card or workspace
+      // 3. DOM inspection: the shipped right Sidebar marks its owner with the session it
+      //    draws, which is the id we need whenever the panel is actually on screen.
+      try {
+        const rightbarOwner = document.querySelector('[data-sidebar-right-session]');
+        const rightbarId = rightbarOwner && (rightbarOwner.getAttribute('data-sidebar-right-session') || rightbarOwner.dataset?.sidebarRightSession);
+        if (rightbarId) return rightbarId;
+      } catch (e) {}
       try {
         const activeCard = document.querySelector('[data-session-id][data-active="true"], [data-session-id].active, [data-session][data-active="true"], [data-session].active, [class*="session"][class*="active"], [class*="active"][data-id]');
         if (activeCard) {
@@ -912,6 +932,27 @@ window.__ModuleLoader__.load({
       } catch (e) {}
 
       return activeSessionId || null;
+    }
+
+    /**
+     * The first session row the main view retains — the rule `uiSession` itself uses to pick
+     * the current session when no binding is held yet.
+     */
+    function retainedSessionId(ctx, list) {
+      const rows = list && list.byId;
+      if (!rows) return null;
+      const ids = Array.isArray(list.ids) && list.ids.length > 0 ? list.ids : Object.keys(rows);
+      for (const id of ids) {
+        if (!rows[id]) continue;
+        let retained = rows[id].retainedBy?.mainView;
+        if (retained === undefined) {
+          try {
+            retained = ctx.sessions?.retainInfo?.(id)?.getSnapshot?.()?.retainedBy?.mainView;
+          } catch (e) {}
+        }
+        if ((retained ?? 0) > 0) return id;
+      }
+      return null;
     }
 
     /**
@@ -953,10 +994,13 @@ window.__ModuleLoader__.load({
         const res = await fetch(`/api/session-progress/content?sessionId=${encodeURIComponent(scope)}`);
         if (res.ok) {
           const data = await res.json();
-          // Guard against out-of-order responses if user switched sessions
+          // Guard against out-of-order responses if the user switched sessions. Only a
+          // *resolved, different* session may invalidate the response: an unknown current
+          // session (a brand-new screen, or a panel that carries its own session id as a
+          // slot-scope prop) must not throw away the data it just fetched.
           const currentSid = resolveCurrentSessionId();
-          const currentScope = currentSid && currentSid !== 'default' ? String(currentSid) : 'default';
-          if (currentScope !== scope) {
+          const currentScope = currentSid && currentSid !== 'default' ? String(currentSid) : null;
+          if (currentScope !== null && currentScope !== scope) {
             return null;
           }
 
@@ -1695,7 +1739,13 @@ window.__ModuleLoader__.load({
         if (currentSid !== activeSessionId) {
           activeSessionId = currentSid;
         }
-        fetchProgress(activeSessionId);
+        if (activeSessionId) {
+          fetchProgress(activeSessionId);
+          return;
+        }
+        // No resolvable current session: the composer switch still lives in the `default`
+        // scope, but polling it must never wipe a panel that carries its own session id.
+        if (!latestData || !latestData.found) fetchProgress('default');
       }, intervalMs);
     }
 
@@ -1773,7 +1823,9 @@ window.__ModuleLoader__.load({
 
     // Exported plugin: services, then the slot registrations that make the panel a
     // native right-Sidebar tab, then the composer trigger and its refresh loop.
-    exports.inject = ['slots', 'sessions', 'sidebarRightTabs', 'sidebarRight'];
+    // `uiSession` is the service that names the current session on 0.1.7+; Cordis only hands
+    // a service over to a plugin that declares it, so it must be listed here.
+    exports.inject = ['slots', 'sessions', 'uiSession', 'sidebarRightTabs', 'sidebarRight'];
     exports.apply = function(ctx) {
       console.log('[dsh-session-progress] client plugin loaded (native right sidebar tab).');
       cordisCtx = ctx;
@@ -1803,7 +1855,9 @@ window.__ModuleLoader__.load({
       try {
         if (ctx.sessions?.list?.subscribe) {
           ctx.sessions.list.subscribe(() => {
-            const currentId = ctx.sessions?.list?.getSnapshot?.()?.current || null;
+            // Resolve through the same chain the panel uses: 0.1.7 dropped the list
+            // snapshot's `current` scalar, so reading it directly would freeze the trigger.
+            const currentId = resolveCurrentSessionId();
             if (currentId !== activeSessionId) {
               activeSessionId = currentId;
               if (!currentId) {
