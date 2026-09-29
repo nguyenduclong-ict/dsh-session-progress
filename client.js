@@ -59,9 +59,8 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-primary, #ffffff);
         }
 
-        .dsh-session-progress-button:active {
-          transform: scale(0.96);
-        }
+        /* No press-down transform here on purpose: the trigger is a status readout, and a
+           scale on :active made the ring visibly jump on every click. */
 
         .dsh-session-progress-button.disabled {
           opacity: 0.42;
@@ -706,6 +705,145 @@ window.__ModuleLoader__.load({
           word-break: break-word;
         }
 
+        /* --- Structured panel (schema v2: goal + weighted checklist tree) --- */
+        .dsh-sp-goal {
+          font-size: 15px;
+          font-weight: 700;
+          line-height: 1.35;
+          margin: 0 0 4px;
+          color: var(--dsw-alias-label-primary, #f4f4f5);
+          overflow-wrap: break-word;
+        }
+
+        .dsh-sp-sub {
+          font-size: 11px;
+          line-height: 1.5;
+          color: var(--dsw-alias-label-tertiary, #71717a);
+          margin: 0 0 16px;
+        }
+
+        /* Sections keep the old Markdown panel's heading voice — blue accent bar, blue uppercase
+           label, tinted rule — so Overview / Checklist / Current Activity read as headings instead
+           of dim captions. */
+        .dsh-sp-section {
+          margin: 0 0 18px;
+        }
+
+        .dsh-sp-section:last-child {
+          margin-bottom: 4px;
+        }
+
+        .dsh-sp-section-title {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          color: #93c5fd;
+          margin: 0 0 8px;
+          padding-bottom: 5px;
+          border-bottom: 1px solid rgba(59, 130, 246, 0.25);
+          overflow-wrap: break-word;
+        }
+
+        .dsh-sp-section-title::before {
+          content: '';
+          display: inline-block;
+          width: 3px;
+          height: 12px;
+          background: #3b82f6;
+          border-radius: 2px;
+          flex-shrink: 0;
+        }
+
+        /* Section metadata (e.g. "% = share of the job") trails the label as a soft badge. */
+        .dsh-sp-hint {
+          margin-left: auto;
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0;
+          text-transform: none;
+          color: rgba(147, 197, 253, 0.85);
+          background: rgba(59, 130, 246, 0.12);
+          border: 1px solid rgba(59, 130, 246, 0.22);
+          border-radius: 999px;
+          padding: 1px 7px;
+          white-space: nowrap;
+        }
+
+        .dsh-sp-section-body {
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .dsh-sp-section-body > *:first-child { margin-top: 0; }
+        .dsh-sp-section-body > *:last-child { margin-bottom: 0; }
+
+        /* The computed share of the job, one badge per checklist item. */
+        .dsh-sp-share {
+          flex: none;
+          align-self: center;
+          font-size: 10px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          padding: 2px 6px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          color: var(--dsw-alias-label-secondary, #a1a1aa);
+          white-space: nowrap;
+        }
+
+        .dsh-sp-node.done > .dsh-task-item .dsh-sp-share {
+          background: rgba(34, 197, 94, 0.14);
+          border-color: rgba(34, 197, 94, 0.3);
+          color: #86efac;
+        }
+
+        .dsh-sp-node.in-progress > .dsh-task-item .dsh-sp-share {
+          background: rgba(59, 130, 246, 0.18);
+          border-color: rgba(59, 130, 246, 0.35);
+          color: #93c5fd;
+        }
+
+        .dsh-sp-groupcount {
+          font-size: 10px;
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          color: var(--dsw-alias-label-tertiary, #71717a);
+          margin-left: 6px;
+        }
+
+        /* A group's own completion, so a phase reads at a glance. */
+        .dsh-sp-groupbar {
+          height: 2px;
+          margin: 0 0 3px 25px;
+          border-radius: 2px;
+          background: rgba(255, 255, 255, 0.07);
+          overflow: hidden;
+        }
+
+        .dsh-sp-groupbar-fill {
+          height: 100%;
+          border-radius: 2px;
+          background: linear-gradient(90deg, #3b82f6, #22c55e);
+          transition: width 0.35s ease;
+        }
+
+        .dsh-sp-warn {
+          font-size: 11px;
+          line-height: 1.5;
+          color: #fca5a5;
+          background: rgba(248, 113, 113, 0.08);
+          border: 1px solid rgba(248, 113, 113, 0.25);
+          border-radius: 6px;
+          padding: 6px 9px;
+          margin: 0 0 12px;
+          overflow-wrap: break-word;
+        }
+
         .dsh-md-code {
           background: rgba(255, 255, 255, 0.08);
           padding: 2px 6px;
@@ -971,12 +1109,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The progress control is ALWAYS mounted (beside the model selector) — including on a brand-new
-     * session screen, because its popover carries the switch that turns progress tracking on or off
-     * for coming sessions.
+     * Whether the composer trigger is worth showing at all.
+     *
+     * Hidden on the new-conversation screen: before a session exists there is no progress to
+     * report. The only thing the control carried there was the ON/OFF switch for sessions about
+     * to be created, which is why it used to stay mounted — `defaultEnabled` in
+     * `~/.dsh-session-progress-settings.json` still covers that case.
      */
     function shouldShowProgressTrigger() {
-      return true;
+      return currentSessionKey() !== null;
     }
 
     /**
@@ -1093,10 +1234,14 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Parse lightweight Markdown into HTML (stripping YAML frontmatter from body)
+     * The empty state, and the entry point for rendering a Markdown fragment.
+     *
+     * The panel itself is rendered from the structured document by
+     * {@link renderProgressPanelHtml}; this Markdown path is what the free-text fields
+     * (Overview, Current Activity, Next Steps, Notes) go through.
      */
     function renderMarkdownToHtml(markdown) {
-      if (!markdown || !markdown.trim()) {
+      if (!markdown || !String(markdown).trim()) {
         return `
           <div class="dsh-sp-empty">
             <div class="dsh-sp-empty-icon">📋</div>
@@ -1105,6 +1250,14 @@ window.__ModuleLoader__.load({
           </div>
         `;
       }
+      return markdownBodyToHtml(markdown);
+    }
+
+    /**
+     * Parse lightweight Markdown into HTML (stripping YAML frontmatter from body)
+     */
+    function markdownBodyToHtml(markdown) {
+      if (!markdown || !String(markdown).trim()) return '';
 
       // Strip YAML frontmatter from visible body text
       let bodyText = markdown;
@@ -1308,6 +1461,120 @@ window.__ModuleLoader__.load({
     }
 
     // ============================================================================
+    // Structured progress panel (schema v2)
+    // ============================================================================
+    //
+    // The server already computed everything derived — each row arrives with its
+    // `depth`, its `state`, its subtree `percent` and its `weightPercent` (the share of
+    // the whole job its weight works out to). The panel only lays that out, so the
+    // numbers on screen can never disagree with the numbers in the document.
+
+    /** Depth-first flatten, so row N on screen is row N for a `#N` matcher. */
+    function flattenChecklist(nodes, out) {
+      const acc = out || [];
+      for (const node of nodes || []) {
+        acc.push(node);
+        flattenChecklist(node.children, acc);
+      }
+      return acc;
+    }
+
+    /** `20%` / `12.5%`, never `NaN%`. */
+    function formatShare(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '';
+      return `${Number.isInteger(num) ? num : num.toFixed(1)}%`;
+    }
+
+    function clampPercent(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return 0;
+      return Math.max(0, Math.min(100, num));
+    }
+
+    /** The weighted checklist tree: one row per item, indented by depth. */
+    function renderChecklistHtml(nodes) {
+      const rows = flattenChecklist(nodes, []);
+      if (rows.length === 0) {
+        return '<div class="dsh-sp-sub">No checklist yet — the agent adds one with <code class="dsh-md-code">session_progress_write</code>.</div>';
+      }
+
+      let html = '';
+      for (const node of rows) {
+        const stateClass = node.state === 'done' ? 'done' : node.state === 'running' ? 'in-progress' : 'pending';
+        const mark = node.state === 'done' ? '✓' : node.state === 'running' ? '▶' : '';
+        const indent = Math.max(0, (Number(node.depth) || 1) - 1) * 14;
+        const count = node.isGroup
+          ? `<span class="dsh-sp-groupcount">${node.done}/${node.leaves}</span>`
+          : '';
+        const share = formatShare(node.weightPercent);
+
+        html += `<div class="dsh-sp-node ${stateClass}" style="margin-left:${indent}px">`;
+        html += `<div class="dsh-task-item ${stateClass}">`;
+        html += `<span class="dsh-task-checkbox">${mark}</span>`;
+        html += `<span class="dsh-task-label">${inlineFormat(node.text)}${count}</span>`;
+        if (share) {
+          html += `<span class="dsh-sp-share" title="Share of the whole job, computed from this item's declared weight">${share}</span>`;
+        }
+        html += '</div>';
+        if (node.isGroup) {
+          html +=
+            `<div class="dsh-sp-groupbar"><div class="dsh-sp-groupbar-fill" style="width:${clampPercent(node.percent)}%"></div></div>`;
+        }
+        html += '</div>';
+      }
+      return html;
+    }
+
+    /** One labelled section; empty bodies are dropped rather than shown as "(empty)". */
+    function renderSection(label, bodyHtml, hint) {
+      if (!bodyHtml || !String(bodyHtml).trim()) return '';
+      const badge = hint ? `<span class="dsh-sp-hint">${escapeHtml(hint)}</span>` : '';
+      return (
+        `<div class="dsh-sp-section">` +
+        `<div class="dsh-sp-section-title">${escapeHtml(label)}${badge}</div>` +
+        `<div class="dsh-sp-section-body">${bodyHtml}</div>` +
+        '</div>'
+      );
+    }
+
+    /**
+     * The whole panel body, built from the JSON document the API returned.
+     * @param {object} data - the `/content` payload.
+     * @returns {string} HTML.
+     */
+    function renderProgressPanelHtml(data) {
+      if (!data || !data.found || !data.hasFile) return renderMarkdownToHtml('');
+
+      const total = Number(data.tasksTotal) || 0;
+      const done = Number(data.tasksDone) || 0;
+      const percent = clampPercent(data.percent);
+      const summaryBits = [
+        total > 0 ? `${done}/${total} items done` : 'no checklist yet',
+        `${percent}% weighted`,
+        data.groups ? `${data.groups} group${data.groups > 1 ? 's' : ''}` : null,
+        data.corrupted ? 'invalid document' : null,
+        data.migrated ? 'migrated from Markdown' : null
+      ].filter(Boolean);
+
+      const parts = [];
+      if (data.title) parts.push(`<div class="dsh-sp-goal">${inlineFormat(data.title)}</div>`);
+      parts.push(`<div class="dsh-sp-sub">${escapeHtml(summaryBits.join(' · '))}</div>`);
+
+      if (data.corrupted && Array.isArray(data.warnings) && data.warnings.length > 0) {
+        parts.push(`<div class="dsh-sp-warn">${escapeHtml(data.warnings.join(' '))}</div>`);
+      }
+
+      parts.push(renderSection('Overview', markdownBodyToHtml(data.overview)));
+      parts.push(renderSection('Checklist', renderChecklistHtml(data.checklist), '% = share of the job'));
+      parts.push(renderSection('Current Activity', markdownBodyToHtml(data.currentActivity)));
+      parts.push(renderSection('Next Steps', markdownBodyToHtml(data.nextSteps)));
+      parts.push(renderSection('Key Findings / Notes', markdownBodyToHtml(data.notes)));
+
+      return parts.filter(Boolean).join('');
+    }
+
+    // ============================================================================
     // Native right Sidebar integration
     // ============================================================================
 
@@ -1414,10 +1681,10 @@ window.__ModuleLoader__.load({
 
       const data = state.data;
       const content = data && typeof data.content === 'string' ? data.content : '';
-      const html = React.useMemo(() => renderMarkdownToHtml(content), [content]);
+      const html = React.useMemo(() => renderProgressPanelHtml(data), [content]);
 
       // Keep the reader's place across polls: the rendered HTML is stable while the
-      // Markdown is unchanged (React skips an identical string), so a changed document
+      // document is unchanged (React skips an identical string), so a changed document
       // is the only case that re-writes the body.
       const onScroll = (event) => {
         scrollRef.current = event.currentTarget.scrollTop;
@@ -1474,7 +1741,7 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'dsh-sp-detail' },
             state.enabled
               ? (tasksTotal > 0
-                  ? `${tasksDone}/${tasksTotal} tasks completed (${state.percent}%)`
+                  ? `${tasksDone}/${tasksTotal} items done · ${state.percent}% weighted`
                   : `Checklist not specified (${state.percent}%)`)
               : 'Tracking is paused'),
           React.createElement('div', { className: 'dsh-progress-track' },
@@ -1513,7 +1780,7 @@ window.__ModuleLoader__.load({
             React.createElement('button', {
               type: 'button',
               className: 'dsh-sp-btn',
-              title: 'Copy progress Markdown',
+              title: 'Copy the progress JSON document',
               disabled: !content,
               onClick: onCopy
             }, copied ? '✓ Copied' : 'Copy'),
@@ -1533,6 +1800,82 @@ window.__ModuleLoader__.load({
     // Composer trailing toolbar trigger (DOM-mounted control)
     // ============================================================================
 
+    /** The composer dock slot's key, exactly as its DOM anchor spells it. */
+    const COMPOSER_DOCK_SLOT = 'conversation.composer.dock';
+
+    /**
+     * The row that hosts the `conversation.composer.dock` slot.
+     *
+     * A slot outlet renders as `<div data-slot="…" style="display:contents">`, so the anchor is
+     * invisible to layout and the row the eye reads as "under the composer card" is the anchor's
+     * PARENT. Mounting there makes the trigger a flex item of that row — beside the dock slot's own
+     * entries and ContextMeter — without nesting it inside somebody else's slot.
+     * @param {Document} [doc] - injectable for tests.
+     * @returns {Element|null} null while the composer is not on screen.
+     */
+    function findComposerDockHost(doc) {
+      const target = doc || document;
+      const selector = `[data-slot="${COMPOSER_DOCK_SLOT}"]`;
+      const anchors = Array.from(target.querySelectorAll?.(selector) || []);
+      if (anchors.length === 0 && target.querySelector) {
+        const single = target.querySelector(selector);
+        if (single) anchors.push(single);
+      }
+      if (anchors.length === 0) return null;
+
+      // A split view renders one composer per pane; prefer a row that is actually laid out, and
+      // fall back to the first so a pane still spinning up is never left without a trigger.
+      const laidOut = anchors.find((anchor) => {
+        const host = anchor.parentElement;
+        if (!host) return false;
+        if (typeof host.getClientRects !== 'function') return true;
+        return host.getClientRects().length > 0;
+      });
+      return (laidOut ?? anchors[0])?.parentElement ?? null;
+    }
+
+    /**
+     * Place the trigger. The dock row wins; the trailing toolbar (beside ContextMeter and the model
+     * selector) is the fallback for a harness without the dock slot. A MutationObserver remounts
+     * this on every composer re-render, so the button must never be lost when a lookup fails.
+     * @param {HTMLElement} btn - the trigger element.
+     * @param {Document} [doc] - injectable for tests.
+     * @returns {Element|null} the element the button ends up in.
+     */
+    function mountProgressButton(btn, doc) {
+      const target = doc || document;
+
+      const dockHost = findComposerDockHost(target);
+      if (dockHost) {
+        if (btn.parentNode !== dockHost) dockHost.appendChild(btn);
+        return dockHost;
+      }
+
+      // Fallback: the trailing toolbar, preferring the candidate that really is the composer's
+      // (it carries ContextMeter or the model selector).
+      const trailingCandidates = Array.from(target.querySelectorAll?.('[class*="trailing"]') || []);
+      const trailing = trailingCandidates.find(el =>
+        el.querySelector('[class*="ContextMeter"], button[aria-haspopup="dialog"]')
+      ) || trailingCandidates[0] || null;
+
+      if (trailing) {
+        const contextMeter = trailing.querySelector('[class*="ContextMeter"], [class*="track"]')?.closest('span')
+                          || trailing.querySelector('button[aria-haspopup="dialog"]')
+                          || trailing.querySelector('[class*="primary"]');
+        if (btn.parentNode !== trailing) {
+          if (contextMeter && contextMeter.parentNode === trailing) {
+            trailing.insertBefore(btn, contextMeter);
+          } else {
+            trailing.appendChild(btn);
+          }
+        }
+        return trailing;
+      }
+
+      if (!btn.parentNode && target.body) target.body.appendChild(btn);
+      return btn.parentNode ?? null;
+    }
+
     function updateHeaderButtonUI(pct, hasFile, isEnabled) {
       const currentSid = resolveCurrentSessionId() || 'default';
       if (isEnabled === undefined) {
@@ -1548,27 +1891,9 @@ window.__ModuleLoader__.load({
         btn = createProgressButton();
       }
 
-      // Mount into composer trailing toolbar (beside ContextMeter and Model selector).
-      // Chỉ chọn ứng viên thật sự là toolbar của composer (chứa ContextMeter hoặc model
-      // selector); nếu không có thì giữ nguyên hành vi cũ (phần tử đầu tiên khớp).
-      const trailingCandidates = Array.from(document.querySelectorAll('[class*="trailing"]'));
-      const trailing = trailingCandidates.find(el =>
-        el.querySelector('[class*="ContextMeter"], button[aria-haspopup="dialog"]')
-      ) || trailingCandidates[0] || null;
-      if (trailing) {
-        const contextMeter = trailing.querySelector('[class*="ContextMeter"], [class*="track"]')?.closest('span')
-                          || trailing.querySelector('button[aria-haspopup="dialog"]')
-                          || trailing.querySelector('[class*="primary"]');
-        if (btn.parentNode !== trailing) {
-          if (contextMeter && contextMeter.parentNode === trailing) {
-            trailing.insertBefore(btn, contextMeter);
-          } else {
-            trailing.appendChild(btn);
-          }
-        }
-      } else if (!btn.parentNode) {
-        document.body.appendChild(btn);
-      }
+      // Mount into the composer dock row (the row under the composer card that hosts the
+      // `conversation.composer.dock` slot), falling back to the trailing toolbar.
+      mountProgressButton(btn);
 
       if (!shouldShowProgressTrigger()) {
         btn.style.display = 'none';
@@ -1590,9 +1915,6 @@ window.__ModuleLoader__.load({
       }
 
       const activity = latestData?.currentActivity;
-      // On a brand-new session screen nothing is tracked yet, so the popover explains that its
-      // switch applies to the sessions about to be created.
-      const isNewSessionScreen = !currentSessionKey();
 
       if (!isEnabled) {
         btn.classList.remove('icon-only');
@@ -1612,18 +1934,16 @@ window.__ModuleLoader__.load({
             <span class="dsh-progress-tooltip-title">Session Progress</span>
           </div>
           <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-tertiary, #71717a); font-size:11px;">
-            ${isNewSessionScreen
-              ? 'Progress tracking is OFF for new sessions (conserves tokens).'
-              : 'Progress tracking is disabled for this session (conserves tokens).'}
+            Progress tracking is disabled for this session (conserves tokens).
           </div>
           <div class="dsh-tooltip-toggle-row">
             <span class="dsh-tooltip-toggle-label">
               <span>⚡ Session Progress</span>
             </span>
-            <div class="dsh-toggle-switch" id="dsh-tooltip-toggle-switch" title="${isNewSessionScreen ? 'Enable progress tracking for new sessions' : 'Enable progress tracking for this session'}"></div>
+            <div class="dsh-toggle-switch" id="dsh-tooltip-toggle-switch" title="Enable progress tracking for this session"></div>
           </div>
         `;
-        btn.setAttribute('aria-label', `Session Progress: Disabled (OFF)${isNewSessionScreen ? ' for new sessions' : ''}`);
+        btn.setAttribute('aria-label', 'Session Progress: Disabled (OFF)');
       } else {
         btn.classList.remove('disabled');
         const numPct = typeof pct === 'number' ? Math.min(100, Math.max(0, pct)) : 0;
@@ -1686,24 +2006,22 @@ window.__ModuleLoader__.load({
           `;
           btn.setAttribute('aria-label', `Session Progress: ${numPct}%`);
         } else {
-          // Ready / new session without a progress file yet (0% badge stays hidden)
+          // Ready session without a progress file yet (0% badge stays hidden)
           tooltip.innerHTML = `
             <div class="dsh-progress-tooltip-header">
-              <span class="dsh-progress-tooltip-title">${isNewSessionScreen ? 'New Session' : 'Ready to Track'}</span>
+              <span class="dsh-progress-tooltip-title">Ready to Track</span>
             </div>
             <div class="dsh-progress-tooltip-body" style="color:var(--dsw-alias-label-secondary, #a1a1aa); font-size:11px;">
-              ${isNewSessionScreen
-                ? 'Progress tracking is ON for new sessions. The switch below turns it off.'
-                : 'Agent will automatically track progress upon starting tasks.'}
+              Agent will automatically track progress upon starting tasks.
             </div>
             <div class="dsh-tooltip-toggle-row">
               <span class="dsh-tooltip-toggle-label">
                 <span>⚡ Session Progress</span>
               </span>
-              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="${isNewSessionScreen ? 'Disable progress tracking for new sessions' : 'Disable progress tracking for this session'}"></div>
+              <div class="dsh-toggle-switch active" id="dsh-tooltip-toggle-switch" title="Disable progress tracking for this session"></div>
             </div>
           `;
-          btn.setAttribute('aria-label', isNewSessionScreen ? 'Session Progress: ON for new sessions' : 'Session Progress: Ready');
+          btn.setAttribute('aria-label', 'Session Progress: Ready');
         }
       }
 
@@ -1743,8 +2061,9 @@ window.__ModuleLoader__.load({
           fetchProgress(activeSessionId);
           return;
         }
-        // No resolvable current session: the composer switch still lives in the `default`
-        // scope, but polling it must never wipe a panel that carries its own session id.
+        // No resolvable current session: the trigger is hidden, and the `default` scope is only
+        // polled to keep the panel's view of it fresh — never to wipe a panel that carries its own
+        // session id.
         if (!latestData || !latestData.found) fetchProgress('default');
       }, intervalMs);
     }

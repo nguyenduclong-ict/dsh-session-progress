@@ -1,9 +1,13 @@
 {
   "name": "dsh-session-progress",
-  "version": "0.10.6",
+  "version": "0.11.1",
   "description": "Session progress tracker with System Prompt injection and a native right Sidebar tab for DeepSeek Harness",
   "type": "module",
   "main": "./index.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "preview": "node tools/preview-panel.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/nguyenduclong-ict/dsh-session-progress.git"
@@ -14,7 +18,9 @@
     "dsh-plugin",
     "session",
     "progress",
-    "markdown",
+    "json",
+    "weighted-checklist",
+    "subtasks",
     "sidebar",
     "rightbar",
     "tab",

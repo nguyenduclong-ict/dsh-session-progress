@@ -4,6 +4,30 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 
+import {
+  addChecklistItems,
+  advanceToNext,
+  boxOf,
+  checkItems,
+  computeProgress,
+  createEmptyProgress,
+  currentItem,
+  deriveStatus,
+  lintProgressData,
+  matchChecklistItem,
+  normalizeHeading,
+  normalizeProgress,
+  parseProgressFileText,
+  removeChecklistItems,
+  renderChecklistLines,
+  renderProgressText,
+  SCHEMA_VERSION,
+  serializeProgress,
+  setItemsState,
+  updateChecklistItems,
+  upcomingItems
+} from './progress-model.js';
+
 export const name = 'dsh-session-progress';
 export const inject = ['webServer'];
 
@@ -14,7 +38,11 @@ let latestActiveSessionId = null;
 // Settings persistence: a per-session override map plus the default that applies to every session
 // without an override. The default is what the toolbar toggle switches on a brand-new session
 // screen, where no session id exists yet but the user must still be able to turn tracking off.
-const SETTINGS_FILE = path.join(os.homedir(), '.dsh-session-progress-settings.json');
+// `DSH_SESSION_PROGRESS_SETTINGS` redirects the store (used by the test suite, which must not write
+// into the real file under the home directory).
+const SETTINGS_FILE = process.env.DSH_SESSION_PROGRESS_SETTINGS
+  ? path.resolve(process.env.DSH_SESSION_PROGRESS_SETTINGS)
+  : path.join(os.homedir(), '.dsh-session-progress-settings.json');
 /** sessionId -> explicit enabled flag (an override of the default). */
 const sessionEnabledOverrides = new Map();
 /** Whether sessions without an override have progress tracking enabled. */
@@ -99,8 +127,8 @@ export function setSessionDisabled(sessionId, disabled) {
 }
 
 // --- Todo tool policy -------------------------------------------------------------------------
-// A session whose progress tracking is ON already maintains the progress file as its task list, so
-// the model-facing `todo_write` tool is denied inside that session's agent scope: one source of
+// A session whose progress tracking is ON already maintains the progress document as its task list,
+// so the model-facing `todo_write` tool is denied inside that session's agent scope: one source of
 // truth instead of two competing lists. The denial is per agent (never global), and it is lifted
 // again the moment tracking is switched off for that session.
 
@@ -207,6 +235,24 @@ export function forgetTodoToolPolicy(agent) {
   if (agentId) todoToolRestrictions.delete(agentId);
 }
 
+// ─────────────────────────── progress document storage (JSON) ───────────────────────────
+//
+// schema v2 keeps the whole document in ONE JSON file per session. The checklist is a tree whose
+// items carry weights, and the percentage is COMPUTED from the boxes on every write — so there is
+// no number for the model to keep in sync, which is what made the Markdown format fragile.
+//
+// v1 files (Markdown) are still found and migrated on first read: the .json sibling is written and
+// the record is repointed at it, so an existing session keeps its checklist.
+
+/** Filename prefix shared by both schema generations. */
+const PROGRESS_FILE_PREFIX = 'dsh-progress-';
+
+/** Extension of the current (JSON) document. */
+const PROGRESS_FILE_EXT = '.json';
+
+/** Extension of the legacy (Markdown) document. */
+const LEGACY_FILE_EXT = '.md';
+
 /**
  * Sanitize a string to be safely used as a filename component
  */
@@ -215,8 +261,42 @@ function sanitizeKey(str) {
   return String(str).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
 }
 
+/** Whether a tmpdir entry is a progress file of either schema generation. */
+function isProgressFileName(name) {
+  return name.startsWith(PROGRESS_FILE_PREFIX) && (name.endsWith(PROGRESS_FILE_EXT) || name.endsWith(LEGACY_FILE_EXT));
+}
+
+/** Newest progress file in a directory matching `prefix`, or null. */
+function newestMatchingFile(dir, prefix) {
+  let best = null;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!isProgressFileName(name) || !name.startsWith(prefix)) continue;
+      const full = path.join(dir, name);
+      try {
+        const stat = fs.statSync(full);
+        if (!best || stat.mtimeMs > best.mtimeMs) best = { filePath: full, mtimeMs: stat.mtimeMs, createdAt: stat.birthtimeMs || stat.mtimeMs };
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return best;
+}
+
+/** Split `dsh-progress-<session>-<uuid>.<ext>` into its session and file uuid. */
+function splitProgressFileName(fileName) {
+  const ext = fileName.endsWith(PROGRESS_FILE_EXT) ? PROGRESS_FILE_EXT : LEGACY_FILE_EXT;
+  const inner = fileName.slice(PROGRESS_FILE_PREFIX.length, -ext.length);
+  let rawId = inner;
+  let uuid = '';
+  if (inner.length > 37) {
+    uuid = inner.slice(-36);
+    rawId = inner.slice(0, -37);
+  }
+  return { sessionId: rawId, uuid };
+}
+
 /**
- * Locate the most relevant active progress record across memory and disk
+ * Locate the most relevant active progress record across memory and disk.
  */
 export function findLatestSessionProgress() {
   // 1. If latestActiveSessionId is known and its file exists, prioritize it
@@ -245,36 +325,18 @@ export function findLatestSessionProgress() {
     }
   }
 
-  // 3. Scan os.tmpdir() for all dsh-progress-*.md files
-  const tmpDir = os.tmpdir();
-  try {
-    const files = fs.readdirSync(tmpDir);
-    for (const f of files) {
-      if (f.startsWith('dsh-progress-') && f.endsWith('.md')) {
-        const full = path.join(tmpDir, f);
-        try {
-          const stat = fs.statSync(full);
-          if (stat.mtimeMs > bestMtime) {
-            const inner = f.slice('dsh-progress-'.length, -3);
-            let rawId = inner;
-            let fileUuid = '';
-            if (inner.length > 37) {
-              fileUuid = inner.slice(-36);
-              rawId = inner.slice(0, -37);
-            }
-            bestMtime = stat.mtimeMs;
-            bestRecord = {
-              sessionId: rawId,
-              filePath: full,
-              uuid: fileUuid,
-              createdAt: stat.birthtimeMs || stat.mtimeMs,
-              lastUpdated: stat.mtimeMs
-            };
-          }
-        } catch (e) {}
-      }
-    }
-  } catch (e) {}
+  // 3. Scan os.tmpdir() for any dsh-progress-* file (JSON first, legacy Markdown too)
+  const found = newestMatchingFile(os.tmpdir(), PROGRESS_FILE_PREFIX);
+  if (found && found.mtimeMs > bestMtime) {
+    const parsed = splitProgressFileName(path.basename(found.filePath));
+    bestRecord = {
+      sessionId: parsed.sessionId,
+      filePath: found.filePath,
+      uuid: parsed.uuid,
+      createdAt: found.createdAt,
+      lastUpdated: found.mtimeMs
+    };
+  }
 
   return bestRecord;
 }
@@ -292,36 +354,20 @@ function findExistingSessionProgress(sessionId) {
     return cached;
   }
 
-  // Check if a progress file already exists in os.tmpdir() for this session
-  const safeId = sanitizeKey(sId);
-  const tmpDir = os.tmpdir();
-  const prefix = `dsh-progress-${safeId}-`;
-  try {
-    const matched = fs.readdirSync(tmpDir).filter((f) => f.startsWith(prefix) && f.endsWith('.md'));
-    let newest = null;
-    let newestMtime = 0;
-    for (const f of matched) {
-      const full = path.join(tmpDir, f);
-      try {
-        const stat = fs.statSync(full);
-        if (stat.mtimeMs > newestMtime) {
-          newestMtime = stat.mtimeMs;
-          newest = full;
-        }
-      } catch (e) {}
-    }
-    if (newest) {
-      const record = {
-        sessionId: sId,
-        filePath: newest,
-        uuid: path.basename(newest).slice(prefix.length, -3),
-        createdAt: Date.now(),
-        lastUpdated: newestMtime
-      };
-      sessionProgressMap.set(sId, record);
-      return record;
-    }
-  } catch (e) {}
+  const prefix = `${PROGRESS_FILE_PREFIX}${sanitizeKey(sId)}-`;
+  const found = newestMatchingFile(os.tmpdir(), prefix);
+  if (found) {
+    const parsed = splitProgressFileName(path.basename(found.filePath));
+    const record = {
+      sessionId: sId,
+      filePath: found.filePath,
+      uuid: parsed.uuid,
+      createdAt: found.createdAt,
+      lastUpdated: found.mtimeMs
+    };
+    sessionProgressMap.set(sId, record);
+    return record;
+  }
 
   return null;
 }
@@ -363,7 +409,8 @@ function findSessionProgressByAnyId(sessionId) {
 }
 
 /**
- * Locate or allocate a progress file for a given sessionId
+ * Locate or allocate a progress file path for a given sessionId. The file is NOT created here:
+ * the caller writes it.
  */
 function getOrCreateSessionProgress(sessionId) {
   if (!sessionId) sessionId = 'default';
@@ -372,10 +419,8 @@ function getOrCreateSessionProgress(sessionId) {
   const existing = findExistingSessionProgress(sId);
   if (existing) return existing;
 
-  // Allocate a designated file path (DO NOT create on disk until agent writes to it)
   const fileUuid = randomUUID();
-  const fileName = `dsh-progress-${sanitizeKey(sId)}-${fileUuid}.md`;
-  const filePath = path.join(os.tmpdir(), fileName);
+  const filePath = path.join(os.tmpdir(), `${PROGRESS_FILE_PREFIX}${sanitizeKey(sId)}-${fileUuid}${PROGRESS_FILE_EXT}`);
 
   const record = {
     sessionId: sId,
@@ -386,915 +431,6 @@ function getOrCreateSessionProgress(sessionId) {
   };
   sessionProgressMap.set(sId, record);
   return record;
-}
-
-/**
- * Parse Markdown content with YAML Frontmatter support to compute completion percentage and checklist summary
- */
-export function parseProgress(content) {
-  if (!content || typeof content !== 'string') {
-    return {
-      percent: 0,
-      status: 'starting',
-      currentActivity: null,
-      explicitPercent: null,
-      checklistPercent: null,
-      tasksTotal: 0,
-      tasksDone: 0,
-      tasksInProgress: 0,
-      tasksPending: 0,
-      frontmatter: null
-    };
-  }
-
-  let explicitPercent = null;
-  let status = null;
-  let currentActivity = null;
-  let frontmatter = null;
-
-  // 1. YAML Frontmatter Extraction (Highest Priority)
-  // Format:
-  // ---
-  // progress: 65%
-  // status: in_progress
-  // current_activity: "..."
-  // ---
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (fmMatch && fmMatch[1]) {
-    frontmatter = {};
-    const fmLines = fmMatch[1].split('\n');
-    for (const rawLine of fmLines) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith('#')) continue;
-      const colonIdx = line.indexOf(':');
-      if (colonIdx !== -1) {
-        const key = line.slice(0, colonIdx).trim().toLowerCase();
-        let val = line.slice(colonIdx + 1).trim();
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.slice(1, -1);
-        }
-        frontmatter[key] = val;
-
-        if (key === 'progress' || key === 'percentage' || key === 'percent' || key === 'tien_do') {
-          const numMatch = val.match(/(\d{1,3})/);
-          if (numMatch) {
-            const num = parseInt(numMatch[1], 10);
-            if (!isNaN(num) && num >= 0 && num <= 100) {
-              explicitPercent = num;
-            }
-          }
-        } else if (key === 'status') {
-          status = val;
-        } else if (key === 'current_activity' || key === 'activity' || key === 'currentactivity') {
-          currentActivity = val;
-        }
-      }
-    }
-  }
-
-  // 2. Inline Explicit Declaration Extraction (Secondary)
-  if (explicitPercent === null) {
-    const explicitMatch = content.match(/(?:\*{1,2}|_)?(?:progress|tiến\s*độ)(?:\*{1,2}|_)?\s*[:=]\s*(\d{1,3})\s*%/i);
-    if (explicitMatch && explicitMatch[1]) {
-      const val = parseInt(explicitMatch[1], 10);
-      if (!isNaN(val) && val >= 0 && val <= 100) {
-        explicitPercent = val;
-      }
-    }
-  }
-
-  // 3. Checklist Parsing
-  const doneMatches = content.match(/^[\s*>-]*\[[xX]\]\s*(.+)$/gm) || [];
-  const inProgressMatches = content.match(/^[\s*>-]*\[[\-\/~]\]\s*(.+)$/gm) || [];
-  const pendingMatches = content.match(/^[\s*>-]*\[\s\]\s*(.+)$/gm) || [];
-
-  const tasksDone = doneMatches.length;
-  const tasksInProgress = inProgressMatches.length;
-  const tasksPending = pendingMatches.length;
-  const tasksTotal = tasksDone + tasksInProgress + tasksPending;
-
-  let checklistPercent = null;
-  if (tasksTotal > 0) {
-    checklistPercent = Math.min(100, Math.max(0, Math.round(((tasksDone + (tasksInProgress * 0.5)) / tasksTotal) * 100)));
-  }
-
-  // 4. Overall Resolution
-  let percent = 0;
-  if (explicitPercent !== null) {
-    percent = explicitPercent;
-  } else if (checklistPercent !== null) {
-    percent = checklistPercent;
-  } else if (content.trim().length > 50) {
-    if (/(?:all\s+tasks\s+completed|all\s+goals\s+achieved|hoàn\s+thành\s+toàn\s+bộ)/i.test(content) || status === 'completed') {
-      percent = 100;
-    } else {
-      percent = 0;
-    }
-  }
-
-  if (percent === 100 && !status) {
-    status = 'completed';
-  } else if (!status) {
-    status = percent > 0 ? 'in_progress' : 'starting';
-  }
-
-  return {
-    percent,
-    status,
-    currentActivity,
-    explicitPercent,
-    checklistPercent,
-    tasksTotal,
-    tasksDone,
-    tasksInProgress,
-    tasksPending,
-    frontmatter
-  };
-}
-
-// ───────────────────────── Whole-file progress writer tool ─────────────────────────
-//
-// History: progress files used to be updated with an anchored `edit` whose `old_string` covered only
-// the YAML frontmatter while `new_string` carried a complete new document. The anchored edit replaced
-// just the frontmatter, so the previous document survived below the new one and the file ended up
-// holding TWO concatenated documents. This tool removes that failure mode entirely: it has no anchor,
-// it always replaces the whole file, and it refuses to persist a document that already looks doubled.
-
-export const PROGRESS_WRITE_TOOL_NAME = 'session_progress_write';
-export const PROGRESS_READ_TOOL_NAME = 'session_progress_read';
-
-/**
- * Inspect a candidate progress document for structural corruption.
- *
- * Language agnostic by design: the canonical sections are localized, so duplication is detected from
- * repeated heading text (and repeated level-1 titles) instead of a fixed section vocabulary.
- *
- * @param {string} content - the complete Markdown document.
- * @returns {{ errors: string[], warnings: string[], h1: string[], sections: string[] }}
- */
-export function lintProgressDocument(content) {
-  const errors = [];
-  const warnings = [];
-  const h1 = [];
-  const sections = [];
-  const sectionCounts = new Map();
-
-  const text = String(content ?? '');
-  const lines = text.split(/\r?\n/);
-  let lastSectionStart = -1;
-  const lineOccurrences = new Map();
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const titleMatch = line.match(/^#\s+(\S.*)$/);
-    if (titleMatch) {
-      h1.push(titleMatch[1].trim());
-      continue;
-    }
-    const sectionMatch = line.match(/^##\s+(\S.*)$/);
-    if (sectionMatch) {
-      const raw = sectionMatch[1].replace(/[*_`\s]+$/, '').trim();
-      if (!raw) continue;
-      sections.push(raw);
-      lastSectionStart = index;
-      const key = raw.toLowerCase();
-      sectionCounts.set(key, (sectionCounts.get(key) || 0) + 1);
-      continue;
-    }
-    // Facts belong once in the file; a repeated sentence is a duplicated fact or a stale copy.
-    const trimmed = line.trim();
-    if (trimmed.length >= 20 && !trimmed.startsWith('|') && !trimmed.startsWith('- [') && !/^[#>`]/.test(trimmed)) {
-      lineOccurrences.set(trimmed, (lineOccurrences.get(trimmed) || 0) + 1);
-    }
-  }
-
-  if (h1.length > 1) {
-    errors.push(
-      `the document has ${h1.length} level-1 titles (${h1.map((t) => `"${t}"`).join(', ')}) — that is two documents concatenated into one file. Send exactly ONE document.`
-    );
-  }
-
-  const repeated = [...sectionCounts.entries()].filter(([, count]) => count > 1);
-  if (repeated.length > 0) {
-    errors.push(
-      `the document repeats section heading(s) ${repeated.map(([name, count]) => `"${name}" ×${count}`).join(', ')} — a duplicated or stale copy of the document is present. Send exactly ONE document containing each section once.`
-    );
-  }
-
-  // ── brevity budget: the file is a status snapshot, not a report or a log ────────────────────────
-  const bytes = Buffer.byteLength(text, 'utf-8');
-  const contentLines = lines.filter((line) => line.trim() !== '').length;
-  const lastSectionLines = lastSectionStart >= 0 ? lines.slice(lastSectionStart + 1).filter((line) => line.trim() !== '').length : 0;
-
-  if (contentLines > 400 || bytes > 60000) {
-    errors.push(
-      `the document is ${contentLines} lines / ${bytes} bytes — far past what a status snapshot needs. Compress it to facts (chosen values, thresholds, blockers, one-line results) and write it again.`
-    );
-  } else if (contentLines > 150 || bytes > 12000) {
-    warnings.push(
-      `the document is ${contentLines} lines / ${bytes} bytes; the budget is ~150 lines / ~12 KB. Cut the analysis down to the facts a human needs to see the state of the work.`
-    );
-  }
-
-  if (lastSectionLines > 40) {
-    warnings.push(
-      `the last section (Key Findings / Notes) holds ${lastSectionLines} lines; its budget is ~40. Replace studies, benchmark tables, per-run logs and method/timing notes with one-line facts.`
-    );
-  }
-
-  const echoed = [...lineOccurrences.entries()].filter(([, count]) => count > 1);
-  if (echoed.length > 0) {
-    const examples = echoed.slice(0, 3).map(([line, count]) => `"${line.slice(0, 60)}${line.length > 60 ? '…' : ''}" ×${count}`).join('; ');
-    warnings.push(`the same sentence appears more than once (${examples}); state each fact once, in one section.`);
-  }
-
-  const hasFrontmatter = /^---\r?\n[\s\S]*?\r?\n---/.test(text);
-  const parsed = parseProgress(content);
-
-  if (!hasFrontmatter) {
-    warnings.push('no YAML frontmatter block was found at the top of the document; it should carry `progress`, `status`, and `current_activity`.');
-  } else {
-    const frontmatter = parsed.frontmatter || {};
-    if (frontmatter.progress === undefined) warnings.push('frontmatter has no `progress` key.');
-    if (!frontmatter.status) warnings.push('frontmatter has no `status` key.');
-    if (!frontmatter.current_activity) warnings.push('frontmatter has no `current_activity` key.');
-  }
-
-  if (h1.length === 0) warnings.push('no level-1 title was found; the document should start with `# <Goal Title>`.');
-  if (sections.length < 5) {
-    warnings.push(`only ${sections.length} level-2 section(s) were found; the canonical document carries 5.`);
-  }
-  if (parsed.explicitPercent !== null && parsed.checklistPercent !== null && Math.abs(parsed.explicitPercent - parsed.checklistPercent) > 25) {
-    warnings.push(
-      `frontmatter progress (${parsed.explicitPercent}%) is far from the checklist-derived value (${parsed.checklistPercent}%); recheck the numbers or the checkboxes.`
-    );
-  }
-
-  return { errors, warnings, h1, sections, lines: contentLines, bytes, lastSectionLines };
-}
-
-// ───────────────────────── Section-level access (the token-lean path) ─────────────────────────
-//
-// The progress file is read AND rewritten by the model on nearly every turn, so shipping the whole
-// document in and out is the plugin's biggest token cost. Both tools therefore address sections:
-// `session_progress_read({ sections })` returns only the requested H2 sections, and
-// `session_progress_write({ updates, frontmatter })` patches only the parts that changed. The
-// whole-document `content` path stays for creating the file and for rewriting a corrupted document.
-
-/** The frontmatter keys the plugin owns, in the order they are written. */
-const CANONICAL_FRONTMATTER_KEYS = ['progress', 'status', 'current_activity'];
-
-/** Accepted spellings of each canonical frontmatter key (old documents and other languages). */
-const FRONTMATTER_KEY_ALIASES = {
-  progress: ['progress', 'percentage', 'percent', 'tien_do', 'tiendo'],
-  status: ['status', 'trang_thai', 'trangthai'],
-  current_activity: ['current_activity', 'currentactivity', 'activity', 'hoat_dong', 'hoatdong']
-};
-
-/** Localized spellings of the five canonical sections, for tolerant name matching. */
-const SECTION_ALIASES = [
-  ['overview', ['overview', 'tong quan', 'gioi thieu', 'muc tieu', 'tom tat', 'objective', 'summary']],
-  ['checklist', ['checklist', 'check list', 'danh sach cong viec', 'danh sach', 'cong viec', 'viec can lam', 'tasks', 'todo']],
-  ['current_activity', ['current activity', 'hoat dong hien tai', 'dang thuc hien', 'dang lam', 'current step', 'hoat dong']],
-  ['next_steps', ['next steps', 'buoc tiep theo', 'cac buoc tiep theo', 'ke hoach tiep theo', 'tiep theo', 'plan']],
-  ['notes', ['key findings', 'findings', 'phat hien', 'ghi chu', 'ket qua chinh', 'notes', 'note']]
-];
-
-/** Section edit modes accepted by `session_progress_write({ updates })`. */
-export const SECTION_MODES = ['replace', 'append', 'prepend', 'tick'];
-
-/**
- * The furthest `frontmatter.progress` may sit from the checklist-derived value before a write that moves
- * either number is refused. The two numbers are the same claim about the work, so a document where they
- * disagree is a document that lies to the user: the panel shows `80% Completed` beside `1/4 tasks
- * completed`. `apply(ctx, { maxPercentGap: 0 })` switches the refusal off.
- */
-export const DEFAULT_MAX_PERCENT_GAP = 10;
-let maxPercentGap = DEFAULT_MAX_PERCENT_GAP;
-
-/** The configured tolerance; quoted in the prompt section and in the refusal message. */
-export function getMaxPercentGap() {
-  return maxPercentGap;
-}
-
-/** Longest-alias-first index, so "buoc tiep theo" wins over a shorter alias. */
-const SECTION_ALIAS_INDEX = SECTION_ALIASES.flatMap(([key, aliases]) => aliases.map((alias) => ({ key, alias }))).sort(
-  (a, b) => b.alias.length - a.alias.length
-);
-
-/**
- * Normalize a heading (or a key) for tolerant comparison: diacritics and punctuation removed,
- * lowercase, single spaces.
- * @param {string} text - raw heading text.
- * @returns {string} the normalized form.
- */
-export function normalizeHeading(text) {
-  return String(text ?? '')
-    .replace(/[Đđ]/g, 'd')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-/**
- * The canonical section a normalized heading belongs to, or null when it is not one of the five.
- * @param {string} normalized - output of {@link normalizeHeading}.
- * @returns {string|null} canonical section key.
- */
-function canonicalSectionKey(normalized) {
-  if (!normalized) return null;
-  for (const { key, alias } of SECTION_ALIAS_INDEX) {
-    if (normalized === alias || normalized.startsWith(`${alias} `) || normalized.includes(` ${alias}`)) return key;
-  }
-  return null;
-}
-
-/**
- * The canonical frontmatter key a raw key spelling maps to, or null when the plugin does not own it.
- * @param {string} rawKey - key as written in the document.
- * @returns {string|null} canonical key.
- */
-function frontmatterKeyOf(rawKey) {
-  const normalized = normalizeHeading(rawKey);
-  if (!normalized) return null;
-  for (const key of CANONICAL_FRONTMATTER_KEYS) {
-    if (FRONTMATTER_KEY_ALIASES[key].some((alias) => normalizeHeading(alias) === normalized)) return key;
-  }
-  return null;
-}
-
-/** Drop leading and trailing blank lines without touching the inner formatting. */
-function trimBlankLines(lines) {
-  const out = [...lines];
-  while (out.length > 0 && out[0].trim() === '') out.shift();
-  while (out.length > 0 && out[out.length - 1].trim() === '') out.pop();
-  return out;
-}
-
-/**
- * Split a progress document into frontmatter, H1 title and H2 sections, ignoring headings that sit
- * inside a fenced code block.
- * @param {string} content - the complete document.
- * @returns {{eol: string, lines: string[], frontmatter: {startLine: number, endLine: number}|null, title: string|null, sections: Array<{name: string, startLine: number, endLine: number, body: string}>}}
- */
-export function splitProgressDocument(content) {
-  const text = String(content ?? '').replace(/^\uFEFF/, '');
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
-  const lines = text.split(/\r?\n/);
-
-  let frontmatter = null;
-  if (lines[0]?.trim() === '---') {
-    for (let index = 1; index < lines.length; index += 1) {
-      if (lines[index].trim() === '---') {
-        frontmatter = { startLine: 0, endLine: index };
-        break;
-      }
-    }
-  }
-
-  const headings = [];
-  let fenceChar = null;
-  const from = frontmatter ? frontmatter.endLine + 1 : 0;
-  for (let index = from; index < lines.length; index += 1) {
-    const line = lines[index];
-    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})/);
-    if (fence) {
-      const char = fence[1][0];
-      if (fenceChar === null) fenceChar = char;
-      else if (fenceChar === char) fenceChar = null;
-      continue;
-    }
-    if (fenceChar !== null) continue;
-
-    const level1 = line.match(/^#\s+(\S.*)$/);
-    if (level1) {
-      headings.push({ level: 1, name: level1[1].trim(), line: index });
-      continue;
-    }
-    const level2 = line.match(/^##\s+(\S.*)$/);
-    if (level2) {
-      headings.push({ level: 2, name: level2[1].replace(/[*_`\s]+$/, '').trim(), line: index });
-    }
-  }
-
-  const sections = headings
-    .filter((heading) => heading.level === 2)
-    .map((heading) => {
-      const next = headings.find((candidate) => candidate.line > heading.line);
-      const endLine = next ? next.line : lines.length;
-      return {
-        name: heading.name,
-        startLine: heading.line,
-        endLine,
-        body: lines.slice(heading.line + 1, endLine).join(eol)
-      };
-    });
-
-  return {
-    eol,
-    lines,
-    frontmatter,
-    title: headings.find((heading) => heading.level === 1)?.name ?? null,
-    sections
-  };
-}
-
-/**
- * Resolve one section name from the model against the document's actual headings.
- *
- * Tolerates casing, diacritics, punctuation, partial names, localized names (English ↔ Vietnamese)
- * and 1-based indexes, so a request never has to guess the exact heading text.
- *
- * @param {Array<{name: string}>} sections - sections of the document, in order.
- * @param {string} query - the name the model asked for.
- * @returns {{section: object, score: number, how: string}|null} the best match, or null.
- */
-export function matchProgressSection(sections, query) {
-  const list = Array.isArray(sections) ? sections : [];
-  const raw = String(query ?? '').trim();
-  if (!raw) return null;
-
-  const asIndex = raw.match(/^(?:#|section\s*)?(\d{1,2})$/i);
-  if (asIndex) {
-    const section = list[Number(asIndex[1]) - 1];
-    return section ? { section, score: 0.5, how: 'index' } : null;
-  }
-
-  const wanted = normalizeHeading(raw);
-  const wantedKey = canonicalSectionKey(wanted);
-  let best = null;
-
-  for (const section of list) {
-    const name = normalizeHeading(section.name);
-    let score = 0;
-    if (name && name === wanted) score = 1;
-    else if (name && wanted && (name.startsWith(`${wanted} `) || wanted.startsWith(`${name} `))) score = 0.9;
-    else if (name.length >= 4 && wanted.length >= 4 && wanted && name && (name.includes(wanted) || wanted.includes(name))) score = 0.8;
-
-    if (wantedKey && canonicalSectionKey(name) === wantedKey) score = Math.max(score, 0.95);
-    if (score > 0 && (best === null || score > best.score)) {
-      best = { section, score, how: score >= 0.9 ? 'name' : 'fuzzy' };
-    }
-  }
-
-  return best;
-}
-
-/**
- * Normalize `frontmatter` from the write tool into canonical keys, rejecting anything the plugin
- * does not own so the document cannot drift away from its three keys.
- * @param {object} patch - raw `frontmatter` argument.
- * @returns {object|null} canonical patch, or null when there is nothing to change.
- */
-export function normalizeFrontmatterPatch(patch) {
-  if (patch === undefined || patch === null) return null;
-  if (typeof patch !== 'object' || Array.isArray(patch)) {
-    throw new Error('`frontmatter` must be an object like { progress: 70, status: "in_progress", current_activity: "..." }.');
-  }
-
-  const out = {};
-  for (const [rawKey, value] of Object.entries(patch)) {
-    if (value === undefined || value === null) continue;
-    const canonical = frontmatterKeyOf(rawKey);
-    if (!canonical) {
-      throw new Error(
-        `\`frontmatter\` has unsupported key "${rawKey}"; the plugin owns ${CANONICAL_FRONTMATTER_KEYS.join(', ')}.`
-      );
-    }
-    out[canonical] = value;
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-/** Render one frontmatter line for a canonical key, validating the value. */
-function frontmatterValueLine(key, value) {
-  if (key === 'progress') {
-    const num = typeof value === 'number' ? Math.round(value) : Number.parseInt(String(value).replace(/[^\d]/g, ''), 10);
-    if (!Number.isFinite(num) || num < 0 || num > 100) {
-      throw new Error(`\`frontmatter.progress\` must be 0-100 (received ${JSON.stringify(value)}).`);
-    }
-    return `progress: ${num}%`;
-  }
-
-  const text = String(value).replace(/\s+/g, ' ').trim();
-  if (!text) throw new Error(`\`frontmatter.${key}\` must not be empty.`);
-  if (key === 'status') return `status: ${text}`;
-  return `${key}: "${text.replace(/"/g, '\\"')}"`;
-}
-
-/**
- * Patch `progress` / `status` / `current_activity` in place, leaving every other byte untouched.
- * A document without a frontmatter block gets one created at the top instead of failing.
- * @param {string} content - the complete document.
- * @param {object} patch - raw `frontmatter` argument.
- * @returns {{content: string, changed: string[], warnings: string[]}}
- */
-export function patchProgressFrontmatter(content, patch) {
-  const normalized = normalizeFrontmatterPatch(patch);
-  const text = String(content ?? '').replace(/^\uFEFF/, '');
-  const changed = [];
-  const warnings = [];
-  if (!normalized) return { content: text, changed, warnings };
-
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
-  const lines = text.split(/\r?\n/);
-  const wanted = CANONICAL_FRONTMATTER_KEYS.filter((key) => normalized[key] !== undefined).map((key) => ({
-    key,
-    line: frontmatterValueLine(key, normalized[key])
-  }));
-
-  let frontmatter = null;
-  if (lines[0]?.trim() === '---') {
-    for (let index = 1; index < lines.length; index += 1) {
-      if (lines[index].trim() === '---') {
-        frontmatter = { startLine: 0, endLine: index };
-        break;
-      }
-    }
-  }
-
-  if (!frontmatter) {
-    warnings.push('the document had no YAML frontmatter block, so one was created at the top of the file.');
-    for (const item of wanted) changed.push(item.key);
-    const block = ['---', ...wanted.map((item) => item.line), '---', ''];
-    return { content: [...block, ...lines].join(eol), changed, warnings };
-  }
-
-  const block = lines.slice(frontmatter.startLine + 1, frontmatter.endLine);
-  for (const item of wanted) {
-    let index = -1;
-    for (let cursor = 0; cursor < block.length; cursor += 1) {
-      const match = block[cursor].match(/^\s*([A-Za-z_][\w-]*)\s*:/);
-      if (match && frontmatterKeyOf(match[1]) === item.key) {
-        index = cursor;
-        break;
-      }
-    }
-    if (index >= 0) {
-      if (block[index] !== item.line) {
-        block[index] = item.line;
-        changed.push(item.key);
-      }
-    } else {
-      block.push(item.line);
-      changed.push(item.key);
-    }
-  }
-
-  const next = [...lines.slice(0, frontmatter.startLine + 1), ...block, ...lines.slice(frontmatter.endLine)];
-  return { content: next.join(eol), changed, warnings };
-}
-
-// ───────────────────────── Checklist ticking (move one box without retyping the list) ─────────────────────
-//
-// Rewriting the whole Checklist section just to flip one box is what made checklists lose their history:
-// items get merged, reworded or dropped, so the boxes the user was reading disappear while `tasksDone`
-// stalls and `progress` keeps climbing. `mode: "tick"` edits ONLY the matched lines and leaves every other
-// byte of the document — item order and wording included — untouched.
-
-/** A checklist line: its bullet (or `1.` style), its checkbox, and its item text. */
-const CHECKBOX_LINE = /^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX\-\/~])\]\s*(.*?)\s*$/;
-
-/** Matcher prefixes that ask for a state other than "done". */
-const TICK_MARKER_PREFIXES = [
-  { prefix: '[~]', mark: '/' },
-  { prefix: '[/]', mark: '/' },
-  { prefix: '~', mark: '/' },
-  { prefix: '[ ]', mark: ' ' },
-  { prefix: '[]', mark: ' ' },
-  { prefix: '[x]', mark: 'x' }
-];
-
-/**
- * Split one `mode: "tick"` matcher into the state it asks for and the text it matches. Accepts a bare
- * snippet (`Viết parser`), a marked one (`~ Chạy lint`), a pasted checklist line (`- [x] Viết parser`) or
- * an item number (`#3`).
- * @param {string} raw - one matcher line.
- * @returns {{mark: string, text: string}} mark is `x` (done), `/` (running) or ` ` (pending).
- */
-export function parseTickMatcher(raw) {
-  let text = String(raw ?? '')
-    .trim()
-    .replace(/^[-*+]\s+/, '');
-  let mark = 'x';
-  for (const candidate of TICK_MARKER_PREFIXES) {
-    if (text.startsWith(candidate.prefix)) {
-      mark = candidate.mark;
-      text = text.slice(candidate.prefix.length).trim();
-      break;
-    }
-  }
-  text = text.replace(/^\[[ xX\-\/~]?\]\s*/, '').trim();
-  return { mark, text };
-}
-
-/**
- * Resolve one matcher against the checklist items of a section. Refusing an unmatched or ambiguous matcher
- * is deliberate: silently ignoring it would recreate the very failure this mode exists to remove.
- * @param {Array<{text: string}>} items - checklist items of one section, in document order.
- * @param {string} matcher - matcher text, already stripped of its state prefix.
- * @returns {number} the 0-based position in `items`.
- */
-function resolveChecklistMatcher(items, matcher) {
-  const listed = items.map((item, position) => `${position + 1}. ${item.text}`).join(' | ');
-  const numbered = matcher.match(/^#?(\d{1,3})$/);
-  if (numbered) {
-    const position = Number(numbered[1]) - 1;
-    if (position >= 0 && position < items.length) return position;
-    throw new Error(`matcher "${matcher}" is out of range; this Checklist has ${items.length} item(s): ${listed}`);
-  }
-
-  const wanted = normalizeHeading(matcher);
-  if (!wanted) throw new Error('a tick matcher was empty.');
-
-  const scored = [];
-  for (let position = 0; position < items.length; position += 1) {
-    const name = normalizeHeading(items[position].text);
-    if (!name) continue;
-    if (name === wanted) scored.push({ position, score: 1 });
-    else if (wanted.length >= 4 && name.includes(wanted)) scored.push({ position, score: 0.9 });
-    else if (name.length >= 4 && wanted.includes(name)) scored.push({ position, score: 0.8 });
-  }
-
-  if (scored.length === 0) {
-    throw new Error(`no checklist item matches "${matcher}". This Checklist has: ${listed}`);
-  }
-  const best = Math.max(...scored.map((entry) => entry.score));
-  const winners = scored.filter((entry) => entry.score === best);
-  if (winners.length > 1) {
-    throw new Error(
-      `"${matcher}" matches ${winners.length} items (${winners
-        .map((entry) => `${entry.position + 1}. ${items[entry.position].text}`)
-        .join(' | ')}); send a longer snippet or the item number.`
-    );
-  }
-  return winners[0].position;
-}
-
-/**
- * Move the named items of ONE section, leaving every other line byte-identical.
- * @param {object} section - a section from {@link splitProgressDocument}.
- * @param {string[]} matchers - matcher lines from the tool call.
- * @returns {{lines: string[], ticked: string[], moved: number}} the section's new body lines, the items that
- *   ended up done, and how many lines changed.
- */
-export function tickChecklistSection(section, matchers) {
-  const lines = String(section?.body ?? '').split(/\r?\n/);
-  const items = checklistItems(section);
-  if (items.length === 0) {
-    throw new Error(`section "${section?.name ?? '?'}" holds no \`- [ ]\` checklist item to tick.`);
-  }
-
-  const listed = items.map((item, position) => `${position + 1}. ${item.text}`).join(' | ');
-  const wanted = matchers.map(parseTickMatcher).filter((entry) => entry.text !== '');
-  if (wanted.length === 0) {
-    throw new Error(
-      `no usable tick matcher was sent; name the finished step, e.g. tick: ["Viết parser"]. This Checklist has: ${listed}`
-    );
-  }
-
-  const out = [...lines];
-  const ticked = [];
-  let moved = 0;
-  for (const entry of wanted) {
-    const item = items[resolveChecklistMatcher(items, entry.text)];
-    const nextLine = rewriteChecklistLine(out[item.index], entry.mark);
-    if (!nextLine) continue;
-    out[item.index] = nextLine;
-    moved += 1;
-    if (entry.mark === 'x') ticked.push(item.text);
-  }
-
-  return { lines: out, ticked, moved };
-}
-
-/** The Checklist section object of a parsed document (whatever its heading is called), or null. */
-function findChecklistSection(doc) {
-  for (const section of doc?.sections ?? []) {
-    if (canonicalSectionKey(normalizeHeading(section.name)) === 'checklist') return section;
-  }
-  return null;
-}
-
-/**
- * Every checklist item of one section, in document order.
- * @param {object} section - a section from {@link splitProgressDocument}.
- * @returns {Array<{index: number, text: string, mark: string}>} `index` is the line inside the section body,
- *   `mark` is `x` (done), `/` or `~` (running) or ` ` (pending).
- */
-function checklistItems(section) {
-  const items = [];
-  String(section?.body ?? '')
-    .split(/\r?\n/)
-    .forEach((line, index) => {
-      const match = line.match(CHECKBOX_LINE);
-      if (match) items.push({ index, text: match[3], mark: match[2] });
-    });
-  return items;
-}
-
-/** Write a new state into one checklist line; '' when the line is already in that state. */
-function rewriteChecklistLine(line, mark) {
-  const match = String(line ?? '').match(CHECKBOX_LINE);
-  if (!match) return '';
-  const next = `${match[1]}[${mark}] ${match[3]}`.replace(/\s+$/, '');
-  return next === line ? '' : next;
-}
-
-/** The step the session is on right now: the first running item, else the first pending one. */
-function currentChecklistItem(items) {
-  return (
-    items.find((item) => item.mark === '/' || item.mark === '~' || item.mark === '-') ??
-    items.find((item) => item.mark === ' ') ??
-    null
-  );
-}
-
-/** The Checklist section's body, whatever its heading is called, or '' when the document has none. */
-function checklistSectionBody(content) {
-  const section = findChecklistSection(splitProgressDocument(String(content ?? '')));
-  return section ? section.body : '';
-}
-
-/**
- * Whether a write would leave `progress` and the boxes telling different stories, by enough to matter.
- *
- * The check is deliberately narrow, so it can never make a document unmaintainable: a write that changes
- * neither the frontmatter percentage nor the Checklist (an activity/notes update) is always accepted, so a
- * file that is ALREADY out of step can still be annotated while the model repairs its numbers.
- *
- * @param {string} previousContent - the document before the write.
- * @param {string} nextContent - the document the write would produce.
- * @param {object} [options] - `maxGap` (0 or less disables the check), plus `touchedProgress` /
- *   `touchedChecklist` overrides for what the caller knows the write asserted; when omitted they are read
- *   out of the two documents.
- * @returns {string} the refusal message, or '' when the write may go ahead.
- */
-export function progressChecklistConflict(previousContent, nextContent, options = {}) {
-  const { maxGap = maxPercentGap, touchedProgress: assertedProgress, touchedChecklist: changedChecklist } = options;
-  if (!(maxGap > 0)) return '';
-
-  const after = parseProgress(nextContent);
-  if (after.explicitPercent === null || after.checklistPercent === null) return '';
-  const gap = Math.abs(after.explicitPercent - after.checklistPercent);
-  if (gap <= maxGap) return '';
-
-  const before = parseProgress(previousContent);
-  const touchedProgress = assertedProgress ?? before.explicitPercent !== after.explicitPercent;
-  const touchedChecklist = changedChecklist ?? checklistSectionBody(previousContent) !== checklistSectionBody(nextContent);
-  if (!touchedProgress && !touchedChecklist) return '';
-
-  return (
-    `\`progress\` (${after.explicitPercent}%) and the checklist (${after.tasksDone}/${after.tasksTotal} done = ${after.checklistPercent}%, ` +
-    `where a \`[/]\` item counts as half) are ${gap} points apart, over the ${maxGap}-point limit, so NOTHING was written. ` +
-    `Make the two numbers agree in ONE call: set \`frontmatter.progress\` to about ${after.checklistPercent} and/or move the boxes that are ` +
-    `really finished with \`updates: [{ section: "Checklist", mode: "tick", tick: ["<snippet of each finished step>"] }]\`, then send the write again.`
-  );
-}
-
-/** Build the replacement body lines of one section for the requested edit mode. */
-function renderSectionBody(section, mode, incomingBody) {
-  const existing = trimBlankLines(String(section?.body ?? '').split(/\r?\n/));
-  const incoming = trimBlankLines(String(incomingBody ?? '').replace(/\r\n/g, '\n').split('\n'));
-  const gap = existing.length > 0 && incoming.length > 0 ? [''] : [];
-
-  let body;
-  if (mode === 'append') body = [...existing, ...gap, ...incoming];
-  else if (mode === 'prepend') body = [...incoming, ...gap, ...existing];
-  else body = incoming;
-
-  return body.length > 0 ? [...body, ''] : [''];
-}
-
-/**
- * Rewrite only the named H2 sections of a document, leaving frontmatter, title and every untouched
- * section byte-identical.
- *
- * @param {string} content - the complete document.
- * @param {Array<{section: string, content: string, mode?: string, tick?: string[]}>} updates - requested edits.
- * `mode: "tick"` moves only the checklist lines named by `tick`/`content`, and reports them in `ticked`.
- * @returns {{content: string, changed: string[], warnings: string[]}}
- */
-export function applyProgressSectionUpdates(content, updates) {
-  if (!Array.isArray(updates) || updates.length === 0) {
-    throw new Error('`updates` must be a non-empty array of { section, content, mode? }.');
-  }
-
-  const text = String(content ?? '').replace(/^\uFEFF/, '');
-  const doc = splitProgressDocument(text);
-  const eol = doc.eol;
-  let lines = doc.lines;
-  const changed = [];
-  const warnings = [];
-
-  const ticked = [];
-  const available = doc.sections.map((section) => `"${section.name}"`).join(', ') || '(none)';
-  const jobs = updates.map((update, position) => {
-    const name = String(update?.section ?? update?.name ?? '').trim();
-    if (!name) {
-      throw new Error(`\`updates[${position}]\` needs a \`section\` name; this document has ${available}.`);
-    }
-    const tickRequest = update?.tick;
-    if (tickRequest !== undefined && !Array.isArray(tickRequest)) {
-      throw new Error(
-        `\`updates[${position}].tick\` must be an array of matcher strings, e.g. ["Viết parser", "~ Chạy lint"].`
-      );
-    }
-    const mode = String(update?.mode ?? (tickRequest !== undefined ? 'tick' : 'replace')).trim().toLowerCase();
-    if (!SECTION_MODES.includes(mode)) {
-      throw new Error(
-        `\`updates[${position}].mode\` must be one of ${SECTION_MODES.join(' | ')} (received ${JSON.stringify(update?.mode)}).`
-      );
-    }
-    if (tickRequest !== undefined && mode !== 'tick') {
-      throw new Error(
-        `\`updates[${position}]\` carries \`tick\` with mode "${mode}"; \`tick\` only works with \`mode: "tick"\`.`
-      );
-    }
-    let matchers = null;
-    if (mode === 'tick') {
-      const source = tickRequest !== undefined ? tickRequest : String(update?.content ?? '').split(/\r?\n/);
-      matchers = source.map((entry) => String(entry ?? '')).filter((entry) => entry.trim() !== '');
-      if (matchers.length === 0) {
-        throw new Error(
-          `\`updates[${position}]\` asks to tick but names no checklist item: send \`tick: ["<snippet of a finished step>"]\`, or the same list in \`content\`, one per line.`
-        );
-      }
-    } else if (typeof update?.content !== 'string') {
-      throw new Error(`\`updates[${position}].content\` must be a string holding that section's new body ("" empties it).`);
-    }
-
-    const hit = matchProgressSection(doc.sections, name);
-    if (!hit) {
-      throw new Error(
-        `\`updates[${position}].section\` "${name}" was not found in the progress file, so nothing was written. ` +
-          `This document has: ${available}. Use one of those names (read the file with session_progress_read if unsure), or send the whole document as \`content\`.`
-      );
-    }
-    return { position, requestedAs: name, mode, body: update?.content, matchers, section: hit.section };
-  });
-
-  const seen = new Map();
-  for (const job of jobs) {
-    if (seen.has(job.section.startLine)) {
-      throw new Error(
-        `\`updates\` addresses section "${job.section.name}" twice ("${seen.get(job.section.startLine)}" and "${job.requestedAs}"); merge them into one entry.`
-      );
-    }
-    seen.set(job.section.startLine, job.requestedAs);
-  }
-
-  // Bottom-up, so every earlier line index keeps pointing at the same line while we splice.
-  const ordered = [...jobs].sort((a, b) => b.section.startLine - a.section.startLine);
-  for (const job of ordered) {
-    if (job.mode === 'tick') {
-      const movedSection = tickChecklistSection(job.section, job.matchers);
-      if (movedSection.moved > 0) {
-        lines = [
-          ...lines.slice(0, job.section.startLine + 1),
-          ...movedSection.lines,
-          ...lines.slice(job.section.endLine)
-        ];
-        changed.push(job.section.name);
-      }
-      ticked.push(...movedSection.ticked);
-      continue;
-    }
-    const body = renderSectionBody(job.section, job.mode, job.body);
-    lines = [...lines.slice(0, job.section.startLine + 1), ...body, ...lines.slice(job.section.endLine)];
-    changed.push(job.section.name);
-  }
-
-  return { content: lines.join(eol), changed: changed.reverse(), warnings, ticked: [...new Set(ticked)] };
-}
-
-/**
- * The checklist is the user's only visible measure of the work, and in practice a model that reports
- * a finished step tends to keep writing prose while the boxes stay behind. Nothing can verify the
- * work itself, so the plugin does what it CAN verify: it compares the checklist of the file before
- * and after every write and, when the boxes did not move while the state did, says so in the write
- * result — the one moment the model is provably looking at this file.
- *
- * @param {object} previousParsed - {@link parseProgress} of the file before the write.
- * @param {object} parsed - {@link parseProgress} of the file after the write.
- * @returns {string} the nudge, or '' when the checklist moved or nothing is left to tick.
- */
-export function buildChecklistHint(previousParsed, parsed) {
-  if (!parsed || parsed.tasksTotal === 0) return '';
-  if (parsed.tasksDone !== (previousParsed?.tasksDone ?? 0)) return '';
-  if (parsed.tasksPending + parsed.tasksInProgress === 0) return '';
-
-  const before = previousParsed?.percent ?? 0;
-  const boxState = `${parsed.tasksDone}/${parsed.tasksTotal} done · ${parsed.tasksInProgress} running · ${parsed.tasksPending} pending`;
-  const fix =
-    'session_progress_write({ updates: [{ section: "Checklist", mode: "tick", tick: ["<snippet of each step that is really finished>"] }] })';
-
-  if (parsed.percent - before >= 5) {
-    return `The checklist did not move (${boxState}) while progress went ${before}% → ${parsed.percent}%: the boxes are what the user reads, so tick every step that is really finished — or correct \`progress\` — with ${fix}.`;
-  }
-  return `The checklist did not move (${boxState}). If a step is finished — including one you finished earlier and left unticked — tick it in this same turn with ${fix}, and keep \`[/]\` on the step running now.`;
 }
 
 /**
@@ -1316,45 +452,166 @@ function writeFileAtomically(filePath, content) {
 }
 
 /**
- * Render the tool result the model reads back after a write.
- * @param {object} value - the structured tool result.
- * @returns {string} a one-paragraph summary.
+ * Read a session's progress document, migrating a legacy Markdown file to JSON on the way.
+ *
+ * @param {object} record - the session's record (its `filePath` may be updated in place when a
+ *   legacy `.md` document is migrated to its `.json` sibling).
+ * @param {string} [sessionId] - owning session id, used when a new document has to be minted.
+ * @returns {{exists: boolean, progress: object|null, text: string, bytes: number, migrated: boolean,
+ *   corrupted: boolean, error: string, warnings: string[]}}
  */
-export function renderProgressWriteResult(value) {
-  const partial = value.mode === 'partial';
-  const parts = [
-    partial
-      ? `Progress updated in place (${value.previousBytes} → ${value.bytes} bytes).`
-      : `Progress written in full (${value.previousBytes} → ${value.bytes} bytes).`
-  ];
-  if (partial && Array.isArray(value.sectionsChanged) && value.sectionsChanged.length > 0) {
-    parts.push(`Sections: ${value.sectionsChanged.join(', ')}.`);
+function loadRecord(record, sessionId = '') {
+  const result = {
+    exists: false,
+    progress: null,
+    text: '',
+    bytes: 0,
+    migrated: false,
+    corrupted: false,
+    error: '',
+    warnings: []
+  };
+  if (!record?.filePath || !fs.existsSync(record.filePath)) return result;
+
+  try {
+    result.text = fs.readFileSync(record.filePath, 'utf-8');
+    result.bytes = Buffer.byteLength(result.text, 'utf-8');
+  } catch (e) {
+    result.exists = true;
+    result.error = `the progress file could not be read: ${e?.message || e}`;
+    return result;
   }
-  if (partial && Array.isArray(value.frontmatterChanged) && value.frontmatterChanged.length > 0) {
-    parts.push(`Frontmatter: ${value.frontmatterChanged.join(', ')}.`);
+
+  try {
+    const parsed = parseProgressFileText(result.text, sessionId || record.sessionId || '');
+    result.progress = parsed.progress;
+    result.exists = true;
+    result.migrated = parsed.migrated;
+
+    if (parsed.migrated) {
+      // A schema-v1 Markdown document: keep the user's checklist by writing the JSON sibling
+      // and repointing the record at it. The old .md file is left alone on disk.
+      const target = `${record.filePath.slice(0, -LEGACY_FILE_EXT.length)}${PROGRESS_FILE_EXT}`;
+      writeFileAtomically(target, serializeProgress(parsed.progress));
+      record.filePath = target;
+      record.uuid = splitProgressFileName(path.basename(target)).uuid;
+      record.lastUpdated = Date.now();
+    }
+  } catch (e) {
+    result.exists = true;
+    result.error = e?.message || String(e);
+    return result;
   }
-  parts.push(`${value.percent}% · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}.`);
-  parts.push(`${value.tasksDone}/${value.tasksTotal} checklist item(s) done.`);
-  if (Array.isArray(value.ticked) && value.ticked.length > 0) {
-    parts.push(`Moved: ${value.ticked.join(' · ')}.`);
-  }
-  if (value.repaired) {
-    parts.push('The previous file was duplicated and is now a single clean document.');
-  }
-  if (value.checklistHint) {
-    parts.push(value.checklistHint);
-  }
-  if (Array.isArray(value.warnings) && value.warnings.length > 0) {
-    parts.push(value.warnings.join(' '));
-  }
-  return parts.join(' ');
+
+  const lint = lintProgressData(result.progress);
+  result.corrupted = lint.errors.length > 0;
+  result.warnings = lint.warnings;
+  return result;
 }
+
+/** The session a tool call belongs to; the owning-session check every progress tool shares. */
+function toolSessionId(exec, toolName) {
+  const session = exec?.agent?.session;
+  const sessionId = session?.header?.id || session?.id || latestActiveSessionId;
+  if (!sessionId || sessionId === 'default') {
+    throw new Error(`${toolName} requires an owning agent session.`);
+  }
+  return sessionId;
+}
+
+/** The record + document a tool call works on, or an actionable error. */
+function openSessionDocument(exec, toolName, options = {}) {
+  const sessionId = toolSessionId(exec, toolName);
+  const record = options.create ? getOrCreateSessionProgress(sessionId) : findSessionProgressByAnyId(sessionId)?.record;
+  if (!record?.filePath) {
+    if (options.allowMissing) return { sessionId, record: null, loaded: null };
+    throw new Error(
+      `${toolName} has no progress document for this session yet: create it first with ${PROGRESS_WRITE_TOOL_NAME} ({ content: { title, checklist: [...] } }).`
+    );
+  }
+  const loaded = loadRecord(record, sessionId);
+  if (loaded.error && !options.tolerateError) {
+    throw new Error(
+      `${toolName} could not read the stored progress document (${loaded.error}). Replace it with one complete document: ` +
+        `${PROGRESS_WRITE_TOOL_NAME} ({ content: { title: "…", checklist: [ { text: "…", weight: 1 } ] } }).`
+    );
+  }
+  return { sessionId, record, loaded };
+}
+
+// ─────────────────────────────── write-result nudging ───────────────────────────────
+//
+// The percentage is computed from the boxes, so the failure mode left is a model that reports work
+// in prose twice in a row while the boxes stay where they were. The plugin cannot verify the work,
+// but it CAN see that exact pattern: two consecutive writes with an identical box fingerprint and
+// steps still pending. That is the one moment it speaks up.
+
+/** sessionId -> the checklist fingerprint of that session's previous write. */
+const checklistFingerprints = new Map();
+
+/** `1:pending|1.1:done|…` — the box state of every row, in display order. */
+function checklistFingerprint(summary) {
+  return (summary?.flat ?? []).map((node) => `${node.path}:${node.state}`).join('|');
+}
+
+/** Remember the state a write left behind, and report a twice-stalled checklist once. */
+function stalenessHint(sessionId, summary) {
+  const fingerprint = checklistFingerprint(summary);
+  const before = checklistFingerprints.get(sessionId);
+  checklistFingerprints.set(sessionId, fingerprint);
+  if (!before || before !== fingerprint || fingerprint === '') return '';
+  if (summary.tasksPending + summary.tasksInProgress === 0) return '';
+  return (
+    `The checklist is unchanged across two consecutive writes (${summary.tasksDone}/${summary.tasksTotal} items done, ` +
+    `${summary.tasksPending} pending). The percentage is computed from the boxes, so an unticked box keeps the panel — and the user — behind ` +
+    `the work you reported: move it now with ${PROGRESS_CHECK_DONE_TOOL_NAME} ({ item: "<snippet of the finished step>" }), or ` +
+    `${PROGRESS_WRITE_TOOL_NAME} ({ check: ["<snippet>", "…"] }) for several at once.`
+  );
+}
+
+// ──────────────────────────────── the write tool ────────────────────────────────
+
+export const PROGRESS_WRITE_TOOL_NAME = 'session_progress_write';
+export const PROGRESS_READ_TOOL_NAME = 'session_progress_read';
+export const PROGRESS_STATUS_TOOL_NAME = 'session_progress_status';
+export const PROGRESS_CHECK_DONE_TOOL_NAME = 'session_progress_check_done';
+
+/** Fields of the write tool that form a patch (as opposed to the whole-document `content`). */
+const WRITE_PATCH_KEYS = [
+  'title',
+  'overview',
+  'status',
+  'current_activity',
+  'next_steps',
+  'notes',
+  'checklist',
+  'checklist_mode',
+  'add',
+  'parent',
+  'update',
+  'check',
+  'start',
+  'uncheck',
+  'remove'
+];
+
+/** A checklist item, as accepted by the write tool. */
+const ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    text: { type: 'string', description: 'The step itself, e.g. "Viết parser". A trailing "(20%)" is read as the weight.' },
+    weight: { type: 'number', description: 'Share of the job among its siblings (see the plugin prompt). Omit to count as 1.' },
+    state: { type: 'string', enum: ['pending', 'running', 'done'], description: 'pending (default) · running · done. A group\'s state is derived from its children.' },
+    children: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Sub-checklist: the same item shape, nested.' }
+  }
+};
 
 /**
  * Build the `session_progress_write` tool definition.
  *
  * Registered as a plain registry definition (raw JSON Schema), matching how first-party plugins that
- * cannot import `@deepseek-ai/dsh-tools` register tools, so this plugin keeps zero runtime deps.
+ * cannot import `@deepseek-ai/tools` register tools, so this plugin keeps zero runtime deps.
  *
  * @returns {object} a registry-ready tool definition.
  */
@@ -1362,48 +619,50 @@ export function buildProgressWriteTool() {
   return {
     name: PROGRESS_WRITE_TOOL_NAME,
     description:
-      'Create or update the session progress file. Send EITHER `updates` [{ section, content, mode? }] plus optional `frontmatter` { progress, status, current_activity } to patch only those parts — the ordinary per-turn path — OR `content` to replace the whole document (creating the file, or repairing one reported `corrupted`). ' +
-      `\`mode\`: replace (default) | append | prepend | tick. \`tick\` is the cheap way to move a checkbox: it flips only the checklist lines you name (\`{ section: "Checklist", mode: "tick", tick: ["Viết parser", "~ Chạy lint"] }\`) and leaves the rest of the list — order and wording — untouched, so the user never loses a box they already read. ` +
-      `A write that would leave \`progress\` more than ${maxPercentGap} points away from the checklist-derived value (1 per \`[x]\`, ½ per \`[/]\`) is REFUSED and nothing is written: fix the number or move the boxes in the SAME call. Section names match loosely (case, accents, partial/localized names, 1-based index); an unknown name is refused with the names that do exist. ` +
-      'Each section `content` is its body WITHOUT the `## heading` line. The assembled result is linted as one document, so nothing is written when it would repeat a title or an H2 heading.',
+      'Create or update the session progress document (a JSON document holding the goal, the checklist and the plan). ' +
+      'The overall percentage is COMPUTED from the checklist and its weights — never send a percentage. ' +
+      'Send EITHER `content` (one complete document: an object, or a JSON string) to create or replace the document, OR a patch: any of `title`, `overview`, `status`, `current_activity`, `next_steps`, `notes`, `checklist` (+ `checklist_mode`: replace | append | merge), ' +
+      '`add` [{ text, weight?, state?, children? }] (+ optional `parent` matcher), `update` [{ match, text?, weight?, state? }], `check` / `start` / `uncheck` / `remove` [matchers]. ' +
+      'A matcher is a distinctive text snippet, a row number (`#3`) or an item path (`#2.1`); an unknown or ambiguous matcher is refused with the full item list, and nothing is written. ' +
+      'Items may nest (`children`), and checking a group off cascades `done` into its whole subtree. Status is derived too (all leaves done ⇒ completed), except `blocked`.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        updates: {
+        content: {
+          type: 'object',
+          additionalProperties: true,
+          description: 'The complete progress document as an object: { title, overview, status, current_activity, checklist: [...], next_steps, notes }. Replaces the document. A JSON string of the same object is also accepted. Never combine with a patch field.'
+        },
+        title: { type: 'string', description: 'Goal title, one line.' },
+        overview: { type: 'string', description: 'Objective plus the current status, as short factual lines.' },
+        status: { type: 'string', enum: ['starting', 'in_progress', 'blocked', 'completed'], description: 'Optional: it is derived from the checklist, except `blocked`, which only you can declare.' },
+        current_activity: { type: 'string', description: 'One line describing the step running now.' },
+        next_steps: { type: 'string', description: 'The plan after the current step.' },
+        notes: { type: 'string', description: 'Decisions, chosen values, blockers — facts only.' },
+        checklist: { type: 'array', items: ITEM_SCHEMA, description: 'The checklist tree as the write leaves it; combined with `checklist_mode`.' },
+        checklist_mode: { type: 'string', enum: ['replace', 'append', 'merge'], description: 'How `checklist` combines with the stored one: replace (default) | append (add at the end) | merge (patch in place by position).' },
+        add: { type: 'array', items: ITEM_SCHEMA, description: 'Items to append; `parent` picks a group to append into.' },
+        parent: { type: 'string', description: 'Matcher for the group that `add` appends into; omitted ⇒ the top level.' },
+        update: {
           type: 'array',
-          description:
-            'Partial edit: one entry per section to change. Never combine with `content`.',
+          description: 'Patch existing items in place (text, weight and/or state).',
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['section'],
+            required: ['match'],
             properties: {
-              section: { type: 'string', description: 'Section to change: its heading (e.g. "Checklist"), a localized form, or a 1-based index.' },
-              content: { type: 'string', description: 'The new body of that section, WITHOUT its `## heading` line. Empty string empties the section. Required unless the entry uses `tick`; with `mode: "tick"` it holds the matchers instead, one per line.' },
-              mode: { type: 'string', enum: SECTION_MODES, description: 'replace (default) · append · prepend · tick (move only the checklist lines named by `tick`/`content`).' },
-              tick: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'mode: "tick" only (instead of `content`): one matcher per checklist item to move, e.g. ["Viết parser", "~ Chạy lint"]. A matcher is a distinctive snippet of the item text, or "#3" for the 1-based item number; the prefix `~` (or `[/]`) asks for running, `[ ]` for pending, and no prefix ticks it done. A matcher matching nothing, or more than one item, is refused.'
-              }
+              match: { type: 'string', description: 'Text snippet, row number (`#3`) or path (`#2.1`).' },
+              text: { type: 'string', description: 'New text; a trailing "(20%)" is read as the weight.' },
+              weight: { type: 'number', description: 'New weight among its siblings.' },
+              state: { type: 'string', enum: ['pending', 'running', 'done'] }
             }
           }
         },
-        frontmatter: {
-          type: 'object',
-          additionalProperties: false,
-          description: 'Partial edit: frontmatter keys to set. Never combine with `content`.',
-          properties: {
-            progress: { type: 'integer', description: 'Total progress 0-100, e.g. 65 (stored as `progress: 65%`).' },
-            status: { type: 'string', description: 'starting | in_progress | blocked | completed.' },
-            current_activity: { type: 'string', description: 'One line describing the step running now.' }
-          }
-        },
-        content: {
-          type: 'string',
-          description: 'The complete progress document (YAML frontmatter + the five sections). Fully replaces the file. Never combine with `updates`/`frontmatter`.'
-        }
+        check: { type: 'array', items: { type: 'string' }, description: 'Matchers to mark done. A group matcher cascades into its subtree. Does not promote a next step — use session_progress_check_done for that.' },
+        start: { type: 'array', items: { type: 'string' }, description: 'Matchers to mark running.' },
+        uncheck: { type: 'array', items: { type: 'string' }, description: 'Matchers to mark pending again.' },
+        remove: { type: 'array', items: { type: 'string' }, description: 'Matchers for items to delete (a group takes its subtree with it).' }
       }
     },
     output: {
@@ -1411,177 +670,169 @@ export function buildProgressWriteTool() {
         type: 'object',
         additionalProperties: false,
         properties: {
+          mode: { type: 'string' },
           bytes: { type: 'integer' },
           previousBytes: { type: 'integer' },
           replaced: { type: 'boolean' },
           repaired: { type: 'boolean' },
-          mode: { type: 'string' },
-          sectionsChanged: { type: 'array', items: { type: 'string' } },
-          ticked: { type: 'array', items: { type: 'string' } },
-          frontmatterChanged: { type: 'array', items: { type: 'string' } },
+          migrated: { type: 'boolean' },
           percent: { type: 'integer' },
+          exactPercent: { type: 'number' },
           status: { type: 'string' },
           currentActivity: { type: 'string' },
-          checklistHint: { type: 'string' },
           tasksTotal: { type: 'integer' },
           tasksDone: { type: 'integer' },
+          tasksInProgress: { type: 'integer' },
+          tasksPending: { type: 'integer' },
+          checked: { type: 'array', items: { type: 'string' } },
+          started: { type: 'array', items: { type: 'string' } },
+          unchecked: { type: 'array', items: { type: 'string' } },
+          added: { type: 'array', items: { type: 'string' } },
+          updated: { type: 'array', items: { type: 'string' } },
+          removed: { type: 'array', items: { type: 'string' } },
+          checklistHint: { type: 'string' },
           warnings: { type: 'array', items: { type: 'string' } }
         }
       },
       render: (_args, value) => [{ type: 'text', text: renderProgressWriteResult(value) }]
     },
     presentCall: (args) => {
-      const partial = Array.isArray(args?.updates) || (args?.frontmatter && typeof args.frontmatter === 'object');
-      const summary = partial
-        ? [
-            ...(Array.isArray(args?.updates)
-              ? args.updates.map(
-                  (update) =>
-                    `${update?.section ?? '?'} (${update?.mode ?? (update?.tick ? 'tick' : 'replace')}${
-                      Array.isArray(update?.tick) ? `: ${update.tick.length}` : ''
-                    })`
-                )
-              : []),
-            ...(args?.frontmatter && typeof args.frontmatter === 'object' ? [`frontmatter: ${Object.keys(args.frontmatter).join(', ')}`] : [])
-          ].join(' · ')
-        : '';
+      const whole = args?.content !== undefined;
+      const keys = WRITE_PATCH_KEYS.filter((key) => args?.[key] !== undefined);
       return {
         card: 'generic',
-        title: partial ? 'Update session progress' : 'Write session progress',
+        title: whole ? 'Write the session progress document' : 'Update session progress',
         kind: 'other',
-        rawInput: partial ? summary : typeof args?.content === 'string' ? args.content : ''
+        rawInput: whole ? '' : keys.join(' · ')
       };
     },
     execute(args, exec) {
-      const content = typeof args?.content === 'string' ? args.content : '';
-      const updates = args?.updates;
-      const frontmatterPatch = normalizeFrontmatterPatch(args?.frontmatter);
-
-      if (updates !== undefined && updates !== null && (!Array.isArray(updates) || updates.length === 0)) {
+      const hasContent = args?.content !== undefined && args?.content !== null && !(typeof args.content === 'string' && args.content.trim() === '');
+      const patchKeys = WRITE_PATCH_KEYS.filter((key) => args?.[key] !== undefined);
+      if (hasContent && patchKeys.length > 0) {
         throw new Error(
-          `${PROGRESS_WRITE_TOOL_NAME}: \`updates\` must be a non-empty array of { section, content, mode? }. Nothing was written.`
+          `${PROGRESS_WRITE_TOOL_NAME} takes EITHER \`content\` (the whole document) OR a patch (${patchKeys.join(', ')}), never both. Nothing was written.`
         );
       }
-
-      const wantsFull = content.trim() !== '';
-      const wantsPartial = Array.isArray(updates) || frontmatterPatch !== null;
-
-      if (wantsFull && wantsPartial) {
+      if (!hasContent && patchKeys.length === 0) {
         throw new Error(
-          `${PROGRESS_WRITE_TOOL_NAME} takes EITHER \`content\` (the whole document) OR \`updates\`/\`frontmatter\` (a partial edit), never both. Nothing was written.`
+          `${PROGRESS_WRITE_TOOL_NAME} needs either \`content\` (the complete document) or at least one patch field (${WRITE_PATCH_KEYS.join(', ')}). Nothing was written.`
         );
       }
-      if (!wantsFull && !wantsPartial) {
+      if (args?.checklist_mode !== undefined && args?.checklist === undefined) {
+        throw new Error('`checklist_mode` only makes sense together with `checklist`. Nothing was written.');
+      }
+
+      const { sessionId, record, loaded } = openSessionDocument(exec, PROGRESS_WRITE_TOOL_NAME, {
+        create: true,
+        tolerateError: true
+      });
+      // A patch needs a readable document to patch. A whole-document write does not: replacing an
+      // unreadable file is exactly the repair path the read tools point the model at.
+      if (loaded.error && !hasContent) {
         throw new Error(
-          `${PROGRESS_WRITE_TOOL_NAME} requires either \`content\` (the complete document) or a partial edit \`updates\`/\`frontmatter\`.`
+          `${PROGRESS_WRITE_TOOL_NAME} cannot patch the stored progress document (${loaded.error}). ` +
+            `Send the whole document instead: ${PROGRESS_WRITE_TOOL_NAME} ({ content: { title: "…", checklist: [ … ] } }).`
         );
       }
+      const previous = loaded.error ? null : loaded.progress;
+      const previousSummary = previous ? computeProgress(previous) : null;
 
-      const session = exec?.agent?.session;
-      const sessionId = session?.header?.id || session?.id || latestActiveSessionId;
-      if (!sessionId || sessionId === 'default') {
-        throw new Error(`${PROGRESS_WRITE_TOOL_NAME} requires an owning agent session.`);
-      }
+      const warnings = [...loaded.warnings];
+      const checked = [];
+      const started = [];
+      const unchecked = [];
+      const added = [];
+      const updated = [];
+      const removed = [];
+      let next = null;
+      let mode = 'partial';
 
-      const record = getOrCreateSessionProgress(sessionId);
-      if (!record?.filePath) {
-        throw new Error(`${PROGRESS_WRITE_TOOL_NAME} could not resolve a progress file path for session ${sessionId}.`);
-      }
+      if (hasContent) {
+        mode = 'full';
+        let source = args.content;
+        if (typeof source === 'string') {
+          try {
+            source = JSON.parse(source);
+          } catch (e) {
+            throw new Error(`\`content\` was sent as a string but is not valid JSON (${e?.message || e}). Send the document as an object, or fix the JSON. Nothing was written.`);
+          }
+        }
+        next = normalizeProgress(source, null, { sessionId }).progress;
+      } else {
+        const patch = {};
+        for (const key of ['title', 'overview', 'status', 'current_activity', 'next_steps', 'notes']) {
+          if (args[key] !== undefined) patch[key] = args[key];
+        }
+        if (args.checklist !== undefined) patch.checklist = args.checklist;
 
-      let previous = '';
-      try {
-        if (fs.existsSync(record.filePath)) previous = fs.readFileSync(record.filePath, 'utf-8');
-      } catch (e) {
-        previous = '';
-      }
-      const previousWasCorrupted = previous.trim() !== '' && lintProgressDocument(previous).errors.length > 0;
+        next = normalizeProgress(patch, previous ?? createEmptyProgress(sessionId), {
+          sessionId,
+          checklistMode: args.checklist_mode
+        }).progress;
 
-      if (!wantsFull && previous.trim() === '') {
-        throw new Error(
-          `${PROGRESS_WRITE_TOOL_NAME} has no progress file to patch for this session: send \`content\` with the complete document to create it.`
-        );
-      }
-      if (!wantsFull && previousWasCorrupted) {
-        throw new Error(
-          `${PROGRESS_WRITE_TOOL_NAME} refuses to patch a corrupted file (it repeats a title or a section heading). Rewrite the whole document as ONE \`content\` value — keeping the single most complete version — and call the tool again.`
-        );
-      }
-
-      const sectionsChanged = [];
-      const tickedItems = [];
-      const frontmatterChanged = [];
-      const patchWarnings = [];
-      let next = wantsFull ? content : previous;
-
-      if (!wantsFull) {
         try {
-          if (frontmatterPatch) {
-            const patched = patchProgressFrontmatter(next, frontmatterPatch);
-            next = patched.content;
-            frontmatterChanged.push(...patched.changed);
-            patchWarnings.push(...patched.warnings);
+          if (args.add !== undefined) {
+            const result = addChecklistItems(next, args.add, args.parent ?? '');
+            added.push(...result.added.map((item) => item.text));
+            warnings.push(...result.warnings);
           }
-          if (Array.isArray(updates) && updates.length > 0) {
-            const patched = applyProgressSectionUpdates(next, updates);
-            next = patched.content;
-            sectionsChanged.push(...patched.changed);
-            tickedItems.push(...(patched.ticked ?? []));
-            patchWarnings.push(...patched.warnings);
-          }
+          if (args.update !== undefined) updated.push(...updateChecklistItems(next, args.update).map((entry) => entry.text));
+          if (args.check !== undefined) checked.push(...checkItems(next, args.check).ticked);
+          if (args.start !== undefined) started.push(...setItemsState(next, args.start, 'running').moved.map((entry) => entry.text));
+          if (args.uncheck !== undefined) unchecked.push(...setItemsState(next, args.uncheck, 'pending').moved.map((entry) => entry.text));
+          if (args.remove !== undefined) removed.push(...removeChecklistItems(next, args.remove).map((entry) => entry.text));
         } catch (e) {
           throw new Error(`${PROGRESS_WRITE_TOOL_NAME} rejected this edit, so nothing was written:\n- ${e?.message || e}`);
         }
-        if (sectionsChanged.length === 0 && frontmatterChanged.length === 0) {
-          patchWarnings.push('the edit changed nothing (the values you sent are already in the file).');
-        }
       }
 
-      const lint = lintProgressDocument(next);
+      const derived = deriveStatus(next, computeProgress(next));
+      next.status = derived.status;
+      if (derived.warning) warnings.push(derived.warning);
+
+      const summary = computeProgress(next);
+      const lint = lintProgressData(next);
       if (lint.errors.length > 0) {
         throw new Error(
-          `${PROGRESS_WRITE_TOOL_NAME} rejected this document, so nothing was written:\n- ${lint.errors.join('\n- ')}\nRewrite it as ONE complete document (or fix the section names/values) and call the tool again.`
+          `${PROGRESS_WRITE_TOOL_NAME} rejected this document, so nothing was written:\n- ${lint.errors.join('\n- ')}\nFix it and call the tool again.`
         );
       }
+      warnings.push(...lint.warnings);
 
-      // The one thing the plugin will not persist: a document whose `progress` and whose boxes disagree,
-      // when this very write is what asserted one of them. A number the user reads must not contradict the
-      // checklist the user reads beside it.
-      const conflict = progressChecklistConflict(previous, next, {
-        maxGap: maxPercentGap,
-        touchedProgress: wantsFull || frontmatterPatch?.progress !== undefined
-      });
-      if (conflict) {
-        throw new Error(`${PROGRESS_WRITE_TOOL_NAME} refused this write, so NOTHING was written:\n- ${conflict}`);
-      }
-
-      writeFileAtomically(record.filePath, next);
+      writeFileAtomically(record.filePath, serializeProgress(next));
       record.lastUpdated = Date.now();
 
-      const parsed = parseProgress(next);
-      const previousParsed = parseProgress(previous);
-      // The nudge only exists once a document was already there: creating a file from scratch is not
-      // a missed tick, and an emptied file has nothing to compare against.
-      const checklistHint = previous.trim() === '' ? '' : buildChecklistHint(previousParsed, parsed);
-      const warnings = [...patchWarnings, ...lint.warnings];
+      const checklistTouched = checked.length + started.length + unchecked.length + added.length + updated.length + removed.length > 0;
+      if (!checklistTouched && previousSummary) warnings.push(...[stalenessHint(sessionId, summary)].filter(Boolean));
+      else checklistFingerprints.set(sessionId, checklistFingerprint(summary));
+
       if (isSessionDisabled(sessionId)) {
-        warnings.push('progress tracking is currently switched OFF for this session, so the UI will not surface this update.');
+        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this update.');
       }
 
       return {
-        bytes: Buffer.byteLength(next, 'utf-8'),
-        previousBytes: Buffer.byteLength(previous, 'utf-8'),
-        replaced: previous.length > 0,
-        repaired: previousWasCorrupted,
-        mode: wantsFull ? 'full' : 'partial',
-        sectionsChanged,
-        ticked: [...new Set(tickedItems)],
-        frontmatterChanged,
-        percent: parsed.percent,
-        status: parsed.status,
-        ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
-        checklistHint,
-        tasksTotal: parsed.tasksTotal,
-        tasksDone: parsed.tasksDone,
+        mode,
+        bytes: Buffer.byteLength(serializeProgress(next), 'utf-8'),
+        previousBytes: loaded.bytes,
+        replaced: loaded.bytes > 0,
+        repaired: loaded.corrupted || Boolean(loaded.error),
+        migrated: loaded.migrated,
+        percent: summary.percent,
+        exactPercent: summary.exactPercent,
+        status: next.status,
+        ...(next.currentActivity ? { currentActivity: next.currentActivity } : {}),
+        tasksTotal: summary.tasksTotal,
+        tasksDone: summary.tasksDone,
+        tasksInProgress: summary.tasksInProgress,
+        tasksPending: summary.tasksPending,
+        checked,
+        started,
+        unchecked,
+        added,
+        updated,
+        removed,
+        checklistHint: '',
         warnings
       };
     }
@@ -1589,52 +840,85 @@ export function buildProgressWriteTool() {
 }
 
 /**
- * Render the read-tool result: the file VERBATIM, plus an actionable trailer when the plugin has
- * something the raw document cannot say by itself (corruption, tracking switched off).
- * @param {object} value - the structured read result.
- * @returns {string} the text the model receives.
+ * Render the tool result the model reads back after a write.
+ * @param {object} value - the structured tool result.
+ * @returns {string} a one-paragraph summary.
  */
-export function renderProgressReadResult(value) {
-  if (!value.exists) {
-    return 'No progress file yet for this session. Create it with session_progress_write, sending the complete document.';
-  }
-  const notes = [];
-  if (value.corrupted) {
-    notes.push(
-      'CORRUPTED: this file repeats a title or a section heading — keep the most complete document and rewrite it now with session_progress_write.'
-    );
-  }
-  if (Array.isArray(value.missing) && value.missing.length > 0) {
-    notes.push(
-      `section(s) not found: ${value.missing.join(', ')}. This document has: ${value.available?.join(', ') || '(none)'}.`
-    );
-  }
-  if (Array.isArray(value.warnings)) {
-    for (const warning of value.warnings) notes.push(warning);
-  }
-  const trailer = notes.length > 0 ? `\n\n---\n[plugin] ${notes.join(' ')}` : '';
-
-  if (value.mode === 'full') {
-    return `${value.content}${trailer}`;
-  }
-
+export function renderProgressWriteResult(value) {
   const parts = [
-    value.title ? `Goal: ${value.title}` : null,
-    `Progress: ${value.percent}% · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}`,
-    `Checklist: ${value.tasksDone}/${value.tasksTotal} done · ${value.tasksInProgress} running · ${value.tasksPending} pending`,
-    `Read ${value.sections.length} of ${value.available?.length ?? 0} section(s): ${value.sections.map((section) => section.name).join(', ') || '(none)'}`
-  ].filter(Boolean);
-  if (value.frontmatter) parts.push('', '```yaml', value.frontmatter, '```');
-  for (const section of value.sections) parts.push('', `## ${section.name}`, section.content);
-  return `${parts.join('\n')}${trailer}`;
+    value.mode === 'full'
+      ? `Progress document written in full (${value.previousBytes} → ${value.bytes} bytes).`
+      : `Progress updated in place (${value.previousBytes} → ${value.bytes} bytes).`
+  ];
+  if (value.migrated) parts.push('The previous Markdown progress file was migrated to JSON.');
+  if (value.repaired) parts.push('The stored document was invalid and is now clean.');
+  parts.push(
+    `${value.percent}% · ${value.status} · ${value.tasksDone}/${value.tasksTotal} item(s) done` +
+      `${value.tasksInProgress ? `, ${value.tasksInProgress} running` : ''}${value.tasksPending ? `, ${value.tasksPending} pending` : ''}.`
+  );
+  if (value.currentActivity) parts.push(`Now: ${value.currentActivity}.`);
+  if (value.checked.length > 0) parts.push(`Checked: ${value.checked.join(' · ')}.`);
+  if (value.started.length > 0) parts.push(`Running: ${value.started.join(' · ')}.`);
+  if (value.unchecked.length > 0) parts.push(`Reopened: ${value.unchecked.join(' · ')}.`);
+  if (value.added.length > 0) parts.push(`Added: ${value.added.join(' · ')}.`);
+  if (value.updated.length > 0) parts.push(`Edited: ${value.updated.join(' · ')}.`);
+  if (value.removed.length > 0) parts.push(`Removed: ${value.removed.join(' · ')}.`);
+  if (value.checklistHint) parts.push(value.checklistHint);
+  if (Array.isArray(value.warnings) && value.warnings.length > 0) parts.push(value.warnings.join(' '));
+  return parts.join(' ');
+}
+
+// ──────────────────────────────── the read tool ────────────────────────────────
+
+/** Canonical section keys of the document, in order, with their localized aliases. */
+const READ_SECTIONS = [
+  ['overview', 'Overview', ['overview', 'tong quan', 'gioi thieu', 'muc tieu', 'tom tat', 'objective', 'summary']],
+  ['checklist', 'Checklist', ['checklist', 'check list', 'danh sach cong viec', 'danh sach', 'cong viec', 'viec can lam', 'tasks', 'todo']],
+  ['current_activity', 'Current Activity', ['current activity', 'hoat dong hien tai', 'dang thuc hien', 'dang lam', 'current step', 'hoat dong']],
+  ['next_steps', 'Next Steps', ['next steps', 'buoc tiep theo', 'cac buoc tiep theo', 'ke hoach tiep theo', 'tiep theo', 'plan']],
+  ['notes', 'Key Findings / Notes', ['key findings', 'findings', 'phat hien', 'ghi chu', 'ket qua chinh', 'notes', 'note']]
+];
+
+/** Resolve one requested section name against the canonical five, tolerating aliases and indexes. */
+function resolveReadSection(query) {
+  const raw = String(query ?? '').trim();
+  if (!raw) return null;
+  const asIndex = raw.match(/^(?:#|section\s*)?(\d{1,2})$/i);
+  if (asIndex) {
+    const entry = READ_SECTIONS[Number(asIndex[1]) - 1];
+    return entry ? entry[0] : null;
+  }
+  const wanted = normalizeHeading(raw);
+  if (!wanted) return null;
+  for (const [key, , aliases] of READ_SECTIONS) {
+    if (aliases.some((alias) => wanted === alias || wanted.startsWith(`${alias} `) || wanted.includes(` ${alias}`))) return key;
+  }
+  return null;
+}
+
+/** The body text of one section of a document. */
+function sectionText(progress, key) {
+  switch (key) {
+    case 'overview':
+      return progress.overview || '(empty)';
+    case 'checklist':
+      return renderChecklistLines(progress);
+    case 'current_activity':
+      return progress.currentActivity || '(empty)';
+    case 'next_steps':
+      return progress.nextSteps || '(empty)';
+    case 'notes':
+      return progress.notes || '(empty)';
+    default:
+      return '';
+  }
 }
 
 /**
- * Build the `session_progress_read` tool definition: the ONLY supported way to see the file.
+ * Build the `session_progress_read` tool definition: the ONLY supported way to see the document.
  *
- * The progress file's path is deliberately never exposed (neither in the prompt nor in any tool
- * result), so the model cannot address it with a generic `read`/`write`/`edit` — an anchored edit
- * whose anchor covered only the YAML frontmatter is what once produced duplicated documents.
+ * The document's path is deliberately never exposed (neither in the prompt nor in any tool
+ * result), so the model cannot address it with a generic `read`/`write`/`edit`.
  *
  * @returns {object} a registry-ready tool definition.
  */
@@ -1642,8 +926,9 @@ export function buildProgressReadTool() {
   return {
     name: PROGRESS_READ_TOOL_NAME,
     description:
-      'Read the session progress file. Pass `sections` to get ONLY those H2 sections back (parsed state + frontmatter always come along) — the cheap path when you are about to touch one or two sections; omit it for the whole document. ' +
-      'Section names match loosely (case, accents, partial/localized names, 1-based index); unmatched names come back in `missing`. ' +
+      'Read the session progress document. Pass `sections` to get ONLY those back (the parsed state always comes along) — the cheap path when you are about to touch one or two of them; omit it for the whole document. ' +
+      'Sections: Overview · Checklist · Current Activity · Next Steps · Notes; names match loosely (case, accents, partial/localized names, 1-based index) and unmatched names come back in `missing`. ' +
+      'Each checklist row is rendered as `- [x] text (share%)`, where the share is computed from the weights, not declared. ' +
       'This is the only supported way to see the document — never look for its path with generic file tools.',
     parameters: {
       type: 'object',
@@ -1652,8 +937,7 @@ export function buildProgressReadTool() {
         sections: {
           type: 'array',
           items: { type: 'string' },
-          description:
-            'H2 sections to return, e.g. ["Checklist", "Next Steps"]. Omit (or pass ["all"]) to read the whole document.'
+          description: 'Sections to return, e.g. ["Checklist", "Next Steps"]. Omit (or pass ["all"]) to read the whole document.'
         }
       }
     },
@@ -1666,6 +950,7 @@ export function buildProgressReadTool() {
           mode: { type: 'string' },
           title: { type: 'string' },
           percent: { type: 'integer' },
+          exactPercent: { type: 'number' },
           status: { type: 'string' },
           currentActivity: { type: 'string' },
           tasksTotal: { type: 'integer' },
@@ -1673,10 +958,11 @@ export function buildProgressReadTool() {
           tasksInProgress: { type: 'integer' },
           tasksPending: { type: 'integer' },
           corrupted: { type: 'boolean' },
+          migrated: { type: 'boolean' },
           warnings: { type: 'array', items: { type: 'string' } },
-          frontmatter: { type: 'string' },
           available: { type: 'array', items: { type: 'string' } },
           missing: { type: 'array', items: { type: 'string' } },
+          checklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
           sections: {
             type: 'array',
             items: {
@@ -1706,203 +992,176 @@ export function buildProgressReadTool() {
       const wantsFull =
         requested.length === 0 || requested.some((entry) => ['all', 'full', 'everything', '*'].includes(normalizeHeading(entry)) || entry === '*');
 
-      const session = exec?.agent?.session;
-      const sessionId = session?.header?.id || session?.id || latestActiveSessionId;
-      if (!sessionId || sessionId === 'default') {
-        throw new Error(`${PROGRESS_READ_TOOL_NAME} requires an owning agent session.`);
-      }
+      const { sessionId, loaded } = openSessionDocument(exec, PROGRESS_READ_TOOL_NAME, { allowMissing: true });
 
       const empty = {
         exists: false,
         mode: wantsFull ? 'full' : 'sections',
         title: '',
         percent: 0,
+        exactPercent: 0,
         status: 'starting',
         tasksTotal: 0,
         tasksDone: 0,
         tasksInProgress: 0,
         tasksPending: 0,
         corrupted: false,
+        migrated: false,
         warnings: [],
-        frontmatter: '',
         available: [],
         missing: [],
+        checklist: [],
         sections: [],
         content: ''
       };
+      if (!loaded?.exists) return empty;
 
-      const record = findSessionProgressByAnyId(sessionId)?.record;
-      if (!record?.filePath) return empty;
-
-      const content = fs.readFileSync(record.filePath, 'utf-8');
-      const parsed = parseProgress(content);
-      const lint = lintProgressDocument(content);
-      const warnings = [...lint.warnings];
-      if (isSessionDisabled(sessionId)) {
-        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this file.');
+      const progress = loaded.progress;
+      const summary = computeProgress(progress);
+      const derived = deriveStatus(progress, summary);
+      const warnings = [...loaded.warnings];
+      if (derived.status !== progress.status) {
+        warnings.push(`the stored status "${progress.status}" does not match the checklist; the derived status is "${derived.status}".`);
       }
-
-      const doc = splitProgressDocument(content);
-      const frontmatter = doc.frontmatter
-        ? doc.lines
-            .slice(doc.frontmatter.startLine + 1, doc.frontmatter.endLine)
-            .join('\n')
-            .trim()
-        : '';
-      const available = doc.sections.map((section) => section.name);
+      if (isSessionDisabled(sessionId)) {
+        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this document.');
+      }
 
       const base = {
         exists: true,
         mode: wantsFull ? 'full' : 'sections',
-        title: doc.title ?? '',
-        percent: parsed.percent,
-        status: parsed.status,
-        ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
-        tasksTotal: parsed.tasksTotal,
-        tasksDone: parsed.tasksDone,
-        tasksInProgress: parsed.tasksInProgress,
-        tasksPending: parsed.tasksPending,
-        corrupted: lint.errors.length > 0,
+        title: progress.title ?? '',
+        percent: summary.percent,
+        exactPercent: summary.exactPercent,
+        status: derived.status,
+        ...(progress.currentActivity ? { currentActivity: progress.currentActivity } : {}),
+        tasksTotal: summary.tasksTotal,
+        tasksDone: summary.tasksDone,
+        tasksInProgress: summary.tasksInProgress,
+        tasksPending: summary.tasksPending,
+        corrupted: loaded.corrupted,
+        migrated: loaded.migrated,
         warnings,
-        frontmatter,
-        available
+        available: READ_SECTIONS.map(([, label]) => label),
+        checklist: summary.items
       };
 
       if (wantsFull) {
-        return { ...base, missing: [], sections: [], content };
+        return { ...base, missing: [], sections: [], content: renderProgressText(progress) };
       }
 
       const missing = [];
       const picked = [];
       for (const name of requested) {
-        const hit = matchProgressSection(doc.sections, name);
-        if (!hit) {
+        const key = resolveReadSection(name);
+        if (!key) {
           missing.push(name);
           continue;
         }
-        if (!picked.some((entry) => entry.section.startLine === hit.section.startLine)) {
-          picked.push({ section: hit.section });
-        }
+        if (!picked.includes(key)) picked.push(key);
       }
 
       return {
         ...base,
         missing,
-        sections: picked
-          .sort((a, b) => a.section.startLine - b.section.startLine)
-          .map((entry) => ({
-            name: entry.section.name,
-            content: trimBlankLines(entry.section.body.split(/\r?\n/)).join('\n')
-          })),
+        sections: picked.map((key) => ({
+          name: READ_SECTIONS.find(([candidate]) => candidate === key)[1],
+          content: sectionText(progress, key)
+        })),
         content: ''
       };
     }
   };
 }
 
-// ─────────────────────── Step tools (where am I, and finish the step I am on) ───────────────────────
-//
-// `session_progress_read` answers "what does the file say". These two answer the two questions a model asks
-// mid-turn, for a fraction of the tokens: `session_progress_status` = the step in progress, the steps after
-// it and the plan; `session_progress_check_done` = finish the step in progress, promote the next one, and
-// keep `progress` in step with the boxes in the SAME write, so the single-step edit can never leave the two
-// numbers the user reads contradicting each other.
-
-export const PROGRESS_STATUS_TOOL_NAME = 'session_progress_status';
-export const PROGRESS_CHECK_DONE_TOOL_NAME = 'session_progress_check_done';
-
-/** The session a tool call belongs to; the owning session check every progress tool shares. */
-function toolSessionId(exec, toolName) {
-  const session = exec?.agent?.session;
-  const sessionId = session?.header?.id || session?.id || latestActiveSessionId;
-  if (!sessionId || sessionId === 'default') {
-    throw new Error(`${toolName} requires an owning agent session.`);
+/**
+ * Render the read-tool result: the document (or the requested sections), plus an actionable trailer
+ * when the plugin has something the raw document cannot say by itself.
+ * @param {object} value - the structured read result.
+ * @returns {string} the text the model receives.
+ */
+export function renderProgressReadResult(value) {
+  if (!value.exists) {
+    return 'No progress document yet for this session. Create it with session_progress_write, sending `content` with the whole document.';
   }
-  return sessionId;
+  const notes = [];
+  if (value.corrupted) {
+    notes.push(
+      'CORRUPTED: the stored document fails validation (see the warnings). Keep the most complete version and write it again with session_progress_write({ content: … }).'
+    );
+  }
+  if (value.migrated) notes.push('the previous Markdown progress file was migrated to JSON.');
+  if (Array.isArray(value.missing) && value.missing.length > 0) {
+    notes.push(`section(s) not found: ${value.missing.join(', ')}. This document has: ${value.available?.join(', ') || '(none)'}.`);
+  }
+  if (Array.isArray(value.warnings)) {
+    for (const warning of value.warnings) notes.push(warning);
+  }
+  const trailer = notes.length > 0 ? `\n\n---\n[plugin] ${notes.join(' ')}` : '';
+
+  if (value.mode === 'full') return `${value.content}${trailer}`;
+
+  const parts = [
+    value.title ? `Goal: ${value.title}` : null,
+    `Progress: ${value.percent}% (computed) · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}`,
+    `Checklist: ${value.tasksDone}/${value.tasksTotal} done · ${value.tasksInProgress} running · ${value.tasksPending} pending`
+  ].filter(Boolean);
+  for (const section of value.sections) parts.push('', `## ${section.name}`, section.content);
+  return `${parts.join('\n')}${trailer}`;
 }
 
-/** How a checkbox state is written, for the text the model reads back. */
-function boxLabel(mark) {
-  if (mark === 'x' || mark === 'X') return '[x]';
-  if (mark === ' ') return '[ ]';
-  return '[/]';
-}
+// ──────────────────── step tools (where am I, and finish the step I am on) ────────────────────
+//
+// `session_progress_read` answers "what does the document say". These two answer the two questions a
+// model asks mid-turn, for a fraction of the tokens: `session_progress_status` = the step in
+// progress, the steps after it and the plan; `session_progress_check_done` = finish the step in
+// progress, promote the next one, and let the plugin recompute the percentage in the same write.
 
 /**
- * The cheap "where am I" view of a document: the step in progress, the pending steps after it, and the plan.
- * @param {string} content - the complete document.
+ * The cheap "where am I" view of a document.
+ * @param {object} progress - the canonical document.
  * @param {number} upcomingLimit - how many upcoming steps to list.
  * @returns {object} the summary both the status tool and the check-done result render.
  */
-function summarizeStep(content, upcomingLimit) {
-  const doc = splitProgressDocument(String(content ?? ''));
-  const parsed = parseProgress(content);
-  const items = checklistItems(findChecklistSection(doc));
-  const current = currentChecklistItem(items);
-  const position = current ? items.indexOf(current) : -1;
-  const upcoming = items
-    .slice(position + 1)
-    .filter((item) => item.mark === ' ')
-    .slice(0, upcomingLimit)
-    .map((item) => ({ index: items.indexOf(item) + 1, text: item.text }));
-  const nextStepsSection = doc.sections.find((section) => canonicalSectionKey(normalizeHeading(section.name)) === 'next_steps');
-
+function summarizeStep(progress, upcomingLimit) {
+  const summary = computeProgress(progress);
+  const derived = deriveStatus(progress, summary);
+  const current = currentItem(summary);
   return {
-    title: doc.title ?? '',
-    percent: parsed.percent,
-    status: parsed.status,
-    currentActivity: parsed.currentActivity ?? '',
-    current: current ? { text: current.text, index: position + 1, box: boxLabel(current.mark) } : null,
-    upcoming,
-    nextSteps: trimBlankLines(String(nextStepsSection?.body ?? '').split(/\r?\n/)).join('\n'),
-    tasksTotal: parsed.tasksTotal,
-    tasksDone: parsed.tasksDone,
-    tasksInProgress: parsed.tasksInProgress,
-    tasksPending: parsed.tasksPending
+    title: progress.title ?? '',
+    percent: summary.percent,
+    exactPercent: summary.exactPercent,
+    status: derived.status,
+    currentActivity: progress.currentActivity ?? '',
+    current: current
+      ? { text: current.text, path: current.path, index: summary.flat.indexOf(current) + 1, box: boxOf(current.state), weightPercent: current.weightPercent }
+      : null,
+    upcoming: upcomingItems(summary, upcomingLimit).map((node) => ({ path: node.path, text: node.text, weightPercent: node.weightPercent })),
+    nextSteps: String(progress.nextSteps ?? ''),
+    tasksTotal: summary.tasksTotal,
+    tasksDone: summary.tasksDone,
+    tasksInProgress: summary.tasksInProgress,
+    tasksPending: summary.tasksPending
   };
 }
 
-/** Render the status tool's result: one screen, no whole file. */
-export function renderProgressStatusResult(value) {
-  if (!value.exists) {
-    return 'No progress file yet for this session. Create it with session_progress_write, sending the complete document.';
-  }
-  const parts = [
-    value.title ? `Goal: ${value.title}` : null,
-    `Progress: ${value.percent}% · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}`,
-    `Checklist: ${value.tasksDone}/${value.tasksTotal} done · ${value.tasksInProgress} running · ${value.tasksPending} pending`,
-    value.current
-      ? `Now: ${value.current.box} ${value.current.text} (item ${value.current.index} of ${value.tasksTotal})`
-      : 'Now: no step in progress (every item is done, or the Checklist is empty).',
-    value.upcoming.length > 0
-      ? `Next: ${value.upcoming.map((item) => `${item.index}. ${item.text}`).join(' · ')}`
-      : 'Next: nothing pending.'
-  ].filter(Boolean);
-  if (value.nextSteps) parts.push('', 'Next Steps:', value.nextSteps);
-  if (Array.isArray(value.warnings)) {
-    for (const warning of value.warnings) parts.push('', `[plugin] ${warning}`);
-  }
-  return parts.join('\n');
-}
-
 /**
- * Build the `session_progress_status` tool: the step in progress, the next steps and the plan, in one cheap
- * read that never touches the file.
+ * Build the `session_progress_status` tool: the step in progress, the next steps and the plan, in one
+ * cheap read that never touches the document.
  * @returns {object} a registry-ready tool definition.
  */
 export function buildProgressStatusTool() {
   return {
     name: PROGRESS_STATUS_TOOL_NAME,
     description:
-      'Where the session stands right now, in ONE cheap call: the current activity, the checklist step in progress, the pending steps after it, and the Next Steps plan. This is the first progress action to reach for at the start of a turn — it costs a fraction of reading the file. Read-only: it never creates or changes anything.',
+      'Where the session stands right now, in ONE cheap call: the current activity, the checklist step in progress, the pending steps after it, and the Next Steps plan. ' +
+      'The percentage shown is computed from the checklist boxes and their weights. ' +
+      'This is the first progress action to reach for at the start of a turn — it costs a fraction of reading the document. Read-only: it never creates or changes anything.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        upcoming: {
-          type: 'integer',
-          description: 'How many upcoming pending steps to list (default 3, max 10).'
-        }
+        upcoming: { type: 'integer', description: 'How many upcoming pending steps to list (default 3, max 10).' }
       }
     },
     output: {
@@ -1913,6 +1172,7 @@ export function buildProgressStatusTool() {
           exists: { type: 'boolean' },
           title: { type: 'string' },
           percent: { type: 'integer' },
+          exactPercent: { type: 'number' },
           status: { type: 'string' },
           currentActivity: { type: 'string' },
           current: {
@@ -1920,8 +1180,10 @@ export function buildProgressStatusTool() {
             additionalProperties: false,
             properties: {
               text: { type: 'string' },
+              path: { type: 'string' },
               index: { type: 'integer' },
-              box: { type: 'string' }
+              box: { type: 'string' },
+              weightPercent: { type: 'number' }
             }
           },
           upcoming: {
@@ -1929,7 +1191,7 @@ export function buildProgressStatusTool() {
             items: {
               type: 'object',
               additionalProperties: false,
-              properties: { index: { type: 'integer' }, text: { type: 'string' } }
+              properties: { path: { type: 'string' }, text: { type: 'string' }, weightPercent: { type: 'number' } }
             }
           },
           nextSteps: { type: 'string' },
@@ -1944,16 +1206,16 @@ export function buildProgressStatusTool() {
     },
     presentCall: () => ({ card: 'generic', title: 'Read where the session stands', kind: 'other', rawInput: '' }),
     execute(args, exec) {
-      const sessionId = toolSessionId(exec, PROGRESS_STATUS_TOOL_NAME);
       const requested = Number(args?.upcoming);
       const limit = Number.isFinite(requested) ? Math.max(1, Math.min(10, Math.round(requested))) : 3;
+      const { sessionId, loaded } = openSessionDocument(exec, PROGRESS_STATUS_TOOL_NAME, { allowMissing: true });
 
-      const record = findSessionProgressByAnyId(sessionId)?.record;
-      if (!record?.filePath) {
+      if (!loaded?.exists) {
         return {
           exists: false,
           title: '',
           percent: 0,
+          exactPercent: 0,
           status: 'starting',
           currentActivity: '',
           upcoming: [],
@@ -1966,56 +1228,62 @@ export function buildProgressStatusTool() {
         };
       }
 
-      const content = fs.readFileSync(record.filePath, 'utf-8');
-      const warnings = [...lintProgressDocument(content).warnings];
+      const warnings = [...loaded.warnings];
+      if (loaded.corrupted) warnings.push('the stored document fails validation; rewrite it with session_progress_write({ content: … }).');
       if (isSessionDisabled(sessionId)) {
-        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this file.');
+        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this document.');
       }
-      return { exists: true, ...summarizeStep(content, limit), warnings };
+      return { exists: true, ...summarizeStep(loaded.progress, limit), warnings };
     }
   };
 }
 
-/** Render the check-done tool's result. */
-export function renderProgressCheckDoneResult(value) {
+/** Render the status tool's result: one screen, no whole document. */
+export function renderProgressStatusResult(value) {
+  if (!value.exists) {
+    return 'No progress document yet for this session. Create it with session_progress_write, sending `content` with the whole document.';
+  }
   const parts = [
-    value.alreadyDone
-      ? `"${value.checked}" was already ticked.`
-      : `Checked off "${value.checked}" (item ${value.checkedIndex} of ${value.tasksTotal}).`
-  ];
-  if (value.promoted) parts.push(`Now running: ${value.promoted}.`);
-  parts.push(`${value.percent}% · ${value.status} · ${value.tasksDone}/${value.tasksTotal} done · ${value.tasksPending} pending.`);
-  if (value.next) parts.push(`Next: ${value.next}.`);
-  if (Array.isArray(value.warnings) && value.warnings.length > 0) parts.push(value.warnings.join(' '));
-  return parts.join(' ');
+    value.title ? `Goal: ${value.title}` : null,
+    `Progress: ${value.percent}% (computed) · ${value.status}${value.currentActivity ? ` · ${value.currentActivity}` : ''}`,
+    `Checklist: ${value.tasksDone}/${value.tasksTotal} done · ${value.tasksInProgress} running · ${value.tasksPending} pending`,
+    value.current
+      ? `Now: ${value.current.box} ${value.current.text} (#${value.current.path}, ${value.current.weightPercent}% of the job)`
+      : 'Now: no step in progress (every item is done, or the Checklist is empty).',
+    value.upcoming.length > 0
+      ? `Next: ${value.upcoming.map((item) => `${item.text} (#${item.path}, ${item.weightPercent}%)`).join(' · ')}`
+      : 'Next: nothing pending.'
+  ].filter(Boolean);
+  if (value.nextSteps) parts.push('', 'Next Steps:', value.nextSteps);
+  if (Array.isArray(value.warnings)) {
+    for (const warning of value.warnings) parts.push('', `[plugin] ${warning}`);
+  }
+  return parts.join('\n');
 }
 
 /**
- * Build the `session_progress_check_done` tool: finish the step the session is on, promote the next one, and
- * keep `progress` in step with the boxes — one call instead of a read plus a write.
+ * Build the `session_progress_check_done` tool: finish the step the session is on, promote the next
+ * one, and let the plugin recompute the percentage — one call instead of a read plus a write.
  * @returns {object} a registry-ready tool definition.
  */
 export function buildProgressCheckDoneTool() {
   return {
     name: PROGRESS_CHECK_DONE_TOOL_NAME,
     description:
-      'Finish the checklist step the session is on, in ONE call: it ticks the step (the running `[/]` one by default, or the one you name), promotes the next `[ ]` step to `[/]`, and brings `progress` in line with the boxes so the two numbers the user reads never contradict each other. ' +
-      'Only the checklist lines that move are edited — every other byte of the document stays as it was. Prefer this over rewriting the Checklist with session_progress_write. ' +
-      '`item` takes a distinctive snippet of a step or `#3` for its number; omit it to finish the step in progress.',
+      'Finish the checklist step the session is on, in ONE call: it ticks that step (the running one by default, or the one you name), promotes the next pending step to running, and recomputes the percentage from the weights. ' +
+      'There is no percentage to pass — it follows the boxes. Only the named items move; every other item, weight and text stays as it was. ' +
+      '`item` takes a distinctive text snippet, a row number (`#3`) or an item path (`#2.1`); omit it to finish the step in progress. ' +
+      'Prefer this over rewriting the checklist with session_progress_write.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         item: {
           type: 'string',
-          description: 'The step to finish: a distinctive snippet of its text, or "#3" for its 1-based number. Default: the step in progress (the first `[/]` item), else the first pending one.'
+          description: 'The step to finish: a distinctive snippet of its text, a row number (`#3`) or a path (`#2.1`). Default: the step in progress (the first running item), else the first pending one.'
         },
         activity: { type: 'string', description: 'New `current_activity` line; omit to keep the current one.' },
-        progress: {
-          type: 'integer',
-          description: 'Override the percentage. Omit (recommended) to let it follow the checklist; a value further from the boxes than the configured tolerance is refused.'
-        },
-        advance: { type: 'boolean', description: 'Promote the next pending step to `[/]` (default true). Set false to leave nothing running.' }
+        advance: { type: 'boolean', description: 'Promote the next pending step to running (default true). Set false to leave nothing running.' }
       }
     },
     output: {
@@ -2024,13 +1292,16 @@ export function buildProgressCheckDoneTool() {
         additionalProperties: false,
         properties: {
           checked: { type: 'string' },
+          checkedPath: { type: 'string' },
           checkedIndex: { type: 'integer' },
           alreadyDone: { type: 'boolean' },
           promoted: { type: 'string' },
+          promotedPath: { type: 'string' },
           next: { type: 'string' },
           bytes: { type: 'integer' },
           previousBytes: { type: 'integer' },
           percent: { type: 'integer' },
+          exactPercent: { type: 'number' },
           status: { type: 'string' },
           currentActivity: { type: 'string' },
           tasksTotal: { type: 'integer' },
@@ -2049,129 +1320,231 @@ export function buildProgressCheckDoneTool() {
       rawInput: typeof args?.item === 'string' ? args.item : ''
     }),
     execute(args, exec) {
-      const sessionId = toolSessionId(exec, PROGRESS_CHECK_DONE_TOOL_NAME);
-      const record = findSessionProgressByAnyId(sessionId)?.record;
-      if (!record?.filePath) {
+      const { sessionId, record, loaded } = openSessionDocument(exec, PROGRESS_CHECK_DONE_TOOL_NAME);
+      if (loaded.corrupted) {
         throw new Error(
-          `${PROGRESS_CHECK_DONE_TOOL_NAME} has no progress file for this session yet: create it first with ${PROGRESS_WRITE_TOOL_NAME} ({ content: "<the complete document>" }).`
+          `${PROGRESS_CHECK_DONE_TOOL_NAME} refuses to edit an invalid document (see ${PROGRESS_READ_TOOL_NAME} for the warnings). ` +
+            `Rewrite it with ${PROGRESS_WRITE_TOOL_NAME} ({ content: { … } }) first.`
         );
       }
 
-      const previous = fs.readFileSync(record.filePath, 'utf-8');
-      if (lintProgressDocument(previous).errors.length > 0) {
-        throw new Error(
-          `${PROGRESS_CHECK_DONE_TOOL_NAME} refuses to edit a corrupted file (it repeats a title or a section heading). Rewrite it as ONE \`content\` value with ${PROGRESS_WRITE_TOOL_NAME} first.`
-        );
-      }
-
-      const doc = splitProgressDocument(previous);
-      const section = findChecklistSection(doc);
-      if (!section) {
-        const available = doc.sections.map((entry) => `"${entry.name}"`).join(', ') || '(none)';
-        throw new Error(
-          `${PROGRESS_CHECK_DONE_TOOL_NAME} found no Checklist section to check off; this document has: ${available}.`
-        );
-      }
-
-      const items = checklistItems(section);
-      if (items.length === 0) {
-        throw new Error(`${PROGRESS_CHECK_DONE_TOOL_NAME} found no \`- [ ]\` item in section "${section.name}".`);
+      const progress = loaded.progress;
+      const summary = computeProgress(progress);
+      if (summary.flat.length === 0) {
+        throw new Error(`${PROGRESS_CHECK_DONE_TOOL_NAME} found no checklist item to check off; add items with ${PROGRESS_WRITE_TOOL_NAME} first.`);
       }
 
       const requested = String(args?.item ?? '').trim();
-      let position;
-      if (requested) {
-        position = resolveChecklistMatcher(items, parseTickMatcher(requested).text);
-      } else {
-        const current = currentChecklistItem(items);
-        if (!current) {
-          throw new Error(
-            `${PROGRESS_CHECK_DONE_TOOL_NAME} has nothing to check off: every item in "${section.name}" is already done. Add the next step to the checklist, or name one with \`item\`.`
-          );
-        }
-        position = items.indexOf(current);
+      const target = requested ? matchChecklistItem(summary, requested).node : currentItem(summary);
+      if (!target) {
+        throw new Error(
+          `${PROGRESS_CHECK_DONE_TOOL_NAME} has nothing to check off: every item is already done. Add the next step to the checklist, or name one with \`item\`.`
+        );
       }
 
-      const bodyLines = String(section.body ?? '').split(/\r?\n/);
-      const target = items[position];
-      const tickedLine = rewriteChecklistLine(bodyLines[target.index], 'x');
-      const alreadyDone = tickedLine === '';
-      if (!alreadyDone) bodyLines[target.index] = tickedLine;
+      const alreadyDone = target.state === 'done';
+      if (!alreadyDone) checkItems(progress, [`#${target.path}`]);
 
-      let promotedItem = null;
+      let promoted = null;
       if (args?.advance !== false) {
-        const stillRunning = checklistItems({ ...section, body: bodyLines.join('\n') }).some(
-          (item) => item.mark === '/' || item.mark === '~' || item.mark === '-'
-        );
-        // The step that follows the finished one, or failing that the first step still pending, so the
-        // checklist keeps saying which single step the session is on.
-        const nextPending =
-          items.find((item, index) => index > position && item.mark === ' ') ?? items.find((item) => item.mark === ' ');
-        if (!stillRunning && nextPending) {
-          const line = rewriteChecklistLine(bodyLines[nextPending.index], '/');
-          if (line) {
-            bodyLines[nextPending.index] = line;
-            promotedItem = nextPending;
-          }
-        }
+        const leaves = summary.flat.filter((node) => !node.isGroup);
+        const prefix = `${target.path}.`;
+        const subtreeLeaves = leaves.filter((node) => node.path === target.path || node.path.startsWith(prefix));
+        const afterPath = subtreeLeaves.length > 0 ? subtreeLeaves[subtreeLeaves.length - 1].path : target.path;
+        promoted = advanceToNext(progress, afterPath).promoted;
       }
 
-      let next = [
-        ...doc.lines.slice(0, section.startLine + 1),
-        ...bodyLines,
-        ...doc.lines.slice(section.endLine)
-      ].join(doc.eol);
+      if (typeof args?.activity === 'string' && args.activity.trim() !== '') {
+        progress.currentActivity = args.activity.trim();
+      }
+      progress.updatedAt = Date.now();
+      progress.status = deriveStatus(progress, computeProgress(progress)).status;
 
-      // `progress` follows the boxes unless the caller insists on a number of its own.
-      const ticked = parseProgress(next);
-      const asked = Number(args?.progress);
-      const patch = { progress: Number.isFinite(asked) ? Math.round(asked) : (ticked.checklistPercent ?? ticked.percent) };
-      if (ticked.tasksTotal > 0 && ticked.tasksPending + ticked.tasksInProgress === 0) patch.status = 'completed';
-      else if (ticked.status === 'completed') patch.status = 'in_progress';
-      if (typeof args?.activity === 'string' && args.activity.trim() !== '') patch.current_activity = args.activity;
-      next = patchProgressFrontmatter(next, patch).content;
-
-      const lint = lintProgressDocument(next);
+      const lint = lintProgressData(progress);
       if (lint.errors.length > 0) {
-        throw new Error(
-          `${PROGRESS_CHECK_DONE_TOOL_NAME} rejected this document, so nothing was written:\n- ${lint.errors.join('\n- ')}`
-        );
-      }
-      const conflict = progressChecklistConflict(previous, next, { maxGap: maxPercentGap, touchedProgress: true });
-      if (conflict) {
-        throw new Error(
-          `${PROGRESS_CHECK_DONE_TOOL_NAME} refused this update, so NOTHING was written:\n- ${conflict}\n- Omit \`progress\` and it will follow the checklist instead.`
-        );
+        throw new Error(`${PROGRESS_CHECK_DONE_TOOL_NAME} rejected this document, so nothing was written:\n- ${lint.errors.join('\n- ')}`);
       }
 
-      writeFileAtomically(record.filePath, next);
+      writeFileAtomically(record.filePath, serializeProgress(progress));
       record.lastUpdated = Date.now();
+      checklistFingerprints.set(sessionId, checklistFingerprint(computeProgress(progress)));
 
-      const parsed = parseProgress(next);
-      const summary = summarizeStep(next, 3);
-      const warnings = [...lint.warnings];
+      const after = computeProgress(progress);
+      const warnings = [...loaded.warnings, ...lint.warnings];
       if (isSessionDisabled(sessionId)) {
-        warnings.push('progress tracking is currently switched OFF for this session, so the UI will not surface this update.');
+        warnings.push('progress tracking is currently switched OFF for this session, so the UI does not surface this update.');
       }
 
       return {
         checked: target.text,
-        checkedIndex: position + 1,
+        checkedPath: target.path,
+        checkedIndex: summary.flat.indexOf(target) + 1,
         alreadyDone,
-        promoted: promotedItem ? promotedItem.text : '',
-        next: summary.upcoming.map((item) => `${item.index}. ${item.text}`).join(' · '),
-        bytes: Buffer.byteLength(next, 'utf-8'),
-        previousBytes: Buffer.byteLength(previous, 'utf-8'),
-        percent: parsed.percent,
-        status: parsed.status,
-        ...(parsed.currentActivity ? { currentActivity: parsed.currentActivity } : {}),
-        tasksTotal: parsed.tasksTotal,
-        tasksDone: parsed.tasksDone,
-        tasksInProgress: parsed.tasksInProgress,
-        tasksPending: parsed.tasksPending,
+        promoted: promoted ? promoted.text : '',
+        promotedPath: promoted ? promoted.path : '',
+        next: upcomingItems(after, 3)
+          .map((item) => `${item.text} (#${item.path})`)
+          .join(' · '),
+        bytes: Buffer.byteLength(serializeProgress(progress), 'utf-8'),
+        previousBytes: loaded.bytes,
+        percent: after.percent,
+        exactPercent: after.exactPercent,
+        status: progress.status,
+        ...(progress.currentActivity ? { currentActivity: progress.currentActivity } : {}),
+        tasksTotal: after.tasksTotal,
+        tasksDone: after.tasksDone,
+        tasksInProgress: after.tasksInProgress,
+        tasksPending: after.tasksPending,
         warnings
       };
     }
+  };
+}
+
+/** Render the check-done tool's result. */
+export function renderProgressCheckDoneResult(value) {
+  const parts = [
+    value.alreadyDone
+      ? `"${value.checked}" (#${value.checkedPath}) was already ticked.`
+      : `Checked off "${value.checked}" (#${value.checkedPath}, row ${value.checkedIndex}).`
+  ];
+  if (value.promoted) parts.push(`Now running: ${value.promoted} (#${value.promotedPath}).`);
+  parts.push(
+    `${value.percent}% (computed) · ${value.status} · ${value.tasksDone}/${value.tasksTotal} done, ${value.tasksPending} pending.`
+  );
+  if (value.next) parts.push(`Next: ${value.next}.`);
+  if (Array.isArray(value.warnings) && value.warnings.length > 0) parts.push(value.warnings.join(' '));
+  return parts.join(' ');
+}
+
+// ─────────────────────────────── the injected prompt ───────────────────────────────
+
+const PROGRESS_PROMPT_SECTION = `# SESSION PROGRESS
+Keep the session progress document current through this plugin's tools ONLY: \`session_progress_status\`, \`session_progress_check_done\`, \`session_progress_write\`, \`session_progress_read\`. It is a JSON document — never look for its path, and never touch it with read/write/edit/shell.
+
+1. THE PERCENTAGE IS COMPUTED, NEVER WRITTEN. Every checklist item carries a \`weight\` (its share among its siblings) and the plugin derives the total from the boxes: a leaf counts 1 when \`done\`, ½ when \`running\`, 0 when \`pending\`, and a group is the weighted average of its children. There is no percentage to pass and none is accepted — declare the weights once, then only move boxes.
+2. WEIGHTS. Top-level weights read best as percent of the whole job (\`20 / 30 / 50\`). A sub-item's weight is relative to its siblings, so children that sum to their parent's weight keep their absolute meaning (\`item 3 (50%)\` with sub-items \`25 / 15 / 10\`). A missing weight counts as 1; a group may not mix declared and defaulted child weights. \`session_progress_read\` and \`session_progress_status\` report each item's real share, so check what you declared.
+3. NESTING. Any item may carry \`children\` (a sub-checklist), up to 6 levels. Checking a group off cascades \`done\` into its whole subtree, so a group is the natural way to check off a finished phase. \`status\` is derived too: all leaves done ⇒ \`completed\`, some progress ⇒ \`in_progress\`, nothing started ⇒ \`starting\`; \`blocked\` is the only status you set yourself.
+4. WRITE SHAPES. \`session_progress_write({ content })\` replaces the whole document (an object, or a JSON string) — use it to create the document or to repair one reported \`corrupted\`. Otherwise send a patch: any of \`title\`, \`overview\`, \`status\`, \`current_activity\`, \`next_steps\`, \`notes\`, \`checklist\` (with \`checklist_mode\`: replace | append | merge), \`add\` [{ text, weight?, state?, children? }] (+ \`parent\` matcher), \`update\` [{ match, text?, weight?, state? }], \`check\` / \`start\` / \`uncheck\` / \`remove\` [matchers]. \`content\` never combines with a patch.
+5. WRITE ONCE OR TWICE PER TURN — a bookkeeping patch near the start, plus ONE close-out write when the work moved. Finishing a step is ONE call: \`session_progress_check_done({ item?: "snippet or #2.1" })\` ticks the step in progress (or the one you name), promotes the next \`[ ]\` step to running and recomputes the percentage. Use \`session_progress_write({ check: [...] })\` to move several boxes without promoting. The checklist is the user's measure of the work, so it must be TRUE at the end of every turn, never "next turn". Never rewrite the checklist just to move a box — a re-planned list silently drops the boxes the user was reading, and the write result tells you when the boxes did not move.
+6. MATCHERS. A matcher is a distinctive text snippet, a row number (\`#3\`, rows as displayed) or a path (\`#2.1\` = 2nd item, 1st child). An unknown or ambiguous matcher is refused with the full item list, so nothing is silently missed.
+7. READ THE LEAST YOU NEED — \`session_progress_status()\` is the cheapest first look of a turn: the step in progress, the pending steps after it and the plan, without the document. \`session_progress_read({ sections: ["Checklist"] })\` returns the sections you name (Overview · Checklist · Current Activity · Next Steps · Notes); omit \`sections\` only when you truly need everything. The first tool call of every user turn is a progress action, but that action is BOOKKEEPING: never list it in the Checklist, and it does not replace the close-out of rule 5.
+8. FACTUAL PROSE — \`overview\`, \`next_steps\` and \`notes\` are a status snapshot, not a report: \`key = value\` for settings, one statement per fact, no logs, timings, method notes or tool inventories, and delete superseded text on every write. Keep the whole document under ~40 KB.
+9. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, fresh checklist and weights); never append the old one. Same objective → patch in place.
+10. Trust the write result (percent, counts, warnings) instead of re-reading the document.
+
+TEMPLATE (create with one call; weights are the item's share of the job)
+session_progress_write({ content: {
+  title: "<Goal Title>",
+  overview: "<objective + current status>",
+  status: "in_progress",
+  current_activity: "<step running now>",
+  checklist: [
+    { text: "<step>", weight: 20 },
+    { text: "<step>", weight: 30 },
+    { text: "<step>", weight: 50, children: [ { text: "<sub-step>", weight: 1 }, { text: "<sub-step>", weight: 1, state: "running" } ] }
+  ],
+  next_steps: "<planned actions>",
+  notes: "<decisions, chosen values, blockers — facts only>"
+} })
+`;
+
+/** The prompt section. Kept as a function so a future per-deployment variant can vary it. */
+export function progressPromptSection() {
+  return PROGRESS_PROMPT_SECTION;
+}
+
+// ─────────────────────────────── HTTP payload builder ───────────────────────────────
+
+/**
+ * Everything the panel and the endpoints need about one stored document.
+ * @param {object} record - the session's record (may be repointed by a migration).
+ * @param {string} sessionId - effective session id.
+ * @returns {object} the JSON payload (never throws).
+ */
+function describeRecord(record, sessionId) {
+  let loaded;
+  try {
+    loaded = loadRecord(record, sessionId);
+  } catch (e) {
+    return { success: false, found: false, hasFile: false, enabled: !isSessionDisabled(sessionId), error: e?.message || String(e), sessionId, content: '', checklist: [] };
+  }
+  if (!loaded.exists) {
+    return {
+      success: true,
+      found: false,
+      hasFile: false,
+      enabled: !isSessionDisabled(sessionId),
+      sessionId,
+      filePath: null,
+      percent: 0,
+      exactPercent: 0,
+      status: 'starting',
+      tasksTotal: 0,
+      tasksDone: 0,
+      tasksInProgress: 0,
+      tasksPending: 0,
+      checklist: [],
+      content: '',
+      message: 'No progress document found for session'
+    };
+  }
+  if (loaded.error || !loaded.progress) {
+    return {
+      success: false,
+      found: true,
+      hasFile: true,
+      enabled: !isSessionDisabled(sessionId),
+      sessionId,
+      filePath: record.filePath,
+      error: loaded.error || 'the progress document could not be parsed',
+      percent: 0,
+      content: loaded.text,
+      checklist: []
+    };
+  }
+
+  let stat = { mtimeMs: record.lastUpdated || Date.now() };
+  try {
+    stat = fs.statSync(record.filePath);
+  } catch (e) {}
+
+  const progress = loaded.progress;
+  const summary = computeProgress(progress);
+  const derived = deriveStatus(progress, summary);
+  const warnings = [...loaded.warnings];
+  if (loaded.corrupted) warnings.push('the stored document fails validation; rewrite it with session_progress_write({ content: … }).');
+
+  return {
+    success: true,
+    found: true,
+    hasFile: true,
+    enabled: !isSessionDisabled(sessionId),
+    sessionId,
+    filePath: record.filePath,
+    fileName: path.basename(record.filePath),
+    version: SCHEMA_VERSION,
+    percent: summary.percent,
+    exactPercent: summary.exactPercent,
+    status: derived.status,
+    currentActivity: progress.currentActivity || '',
+    title: progress.title || '',
+    overview: progress.overview || '',
+    nextSteps: progress.nextSteps || '',
+    notes: progress.notes || '',
+    tasksTotal: summary.tasksTotal,
+    tasksDone: summary.tasksDone,
+    tasksInProgress: summary.tasksInProgress,
+    tasksPending: summary.tasksPending,
+    groups: summary.groups,
+    checklist: summary.items,
+    createdAt: progress.createdAt || 0,
+    updatedAt: progress.updatedAt || 0,
+    content: serializeProgress(progress),
+    corrupted: loaded.corrupted,
+    migrated: loaded.migrated,
+    warnings,
+    lastModified: stat.mtimeMs
   };
 }
 
@@ -2198,63 +1571,10 @@ function openInDefaultApp(targetPath) {
   return true;
 }
 
-/**
- * The injected system-prompt section.
- *
- * Kept deliberately terse: it is re-sent on every request, so every sentence has to earn its tokens.
- * The file is reachable ONLY through the plugin's tools, and its path is never named (a partial
- * anchored edit on that path once produced files holding two concatenated documents).
- */
-const PROGRESS_PROMPT_SECTION = `# SESSION PROGRESS
-Keep the session progress file current through this plugin's tools ONLY: \`session_progress_read\` and \`session_progress_write\`. Never use read/write/edit/shell on it, and never look for its path.
-
-1. READ THE LEAST YOU NEED — \`session_progress_status()\` is the cheapest first look of a turn: the step in progress, the pending steps after it and the Next Steps plan, without the rest of the file. \`session_progress_read({ sections: ["Checklist", "Next Steps"] })\` returns those H2 sections (frontmatter + parsed state always come along); omit \`sections\` only when you truly need the whole document. Section names are matched loosely (case, accents, partial or localized names, 1-based index).
-2. WRITE ONCE OR TWICE PER TURN — a bookkeeping write near the start, plus ONE close-out write when the work moved (rule 3). Prefer the partial edit \`session_progress_write({ updates: [{ section, content, mode }], frontmatter: { progress, status, current_activity } })\`; \`mode\`: replace (default) · append · prepend · tick. \`mode: "tick"\` moves a box WITHOUT retyping the list — \`{ section: "Checklist", mode: "tick", tick: ["Viết parser", "~ Chạy lint"] }\` names each step that moved (\`~\` = running, \`[ ]\` = pending, no prefix = done) and edits only those lines, so the boxes the user already read survive. Use the whole-document \`content\` ONLY to create the file or to rewrite one reported \`corrupted\`/over budget. Never send both. Each section's \`content\` is its body WITHOUT the \`## heading\` line; an unknown section name, an unmatched or ambiguous tick matcher, or a \`progress\` that contradicts the boxes is refused with an explanation.
-3. THE CHECKLIST IS A LIVE LEDGER — it is how the user measures the work, so it must be TRUE at the end of every turn, not at the end of the task. Finishing a step is ONE call: \`session_progress_check_done({ item?: "snippet of the step" })\` ticks the step in progress (or the one you name), promotes the next \`[ ]\` to \`[/]\` and brings \`progress\` in line — in that same turn, never "next turn". Use \`session_progress_write({ updates: [{ section: "Checklist", mode: "tick", tick: [...] }] })\` when you need to move several boxes or a box that is not the current step; keep \`- [/]\` on the step running right now and \`- [ ]\` on the rest; never tick a step that is not done, and never untick one that is. Never rewrite the whole list to move one box — a re-planned list silently drops the boxes the user was reading and leaves \`progress\` climbing alone. Before you end a turn that moved the work, look at the boxes again: if the work moved and the boxes did not, the close-out write is still owed — the write result tells you when this happened, so act on it instead of ignoring it.
-4. FRONTMATTER FIRST, keys in English: \`progress\` 0-100 · \`status\` starting|in_progress|blocked|completed · \`current_activity\` (one line). \`progress\` tracks the checklist — count 1 per \`[x]\`, ½ per \`[/]\` — and a write that leaves the two more than __MAX_PERCENT_GAP__ points apart is REFUSED, so move the boxes or correct the number in the SAME call; never raise \`progress\` while the boxes say otherwise.
-5. BODY = exactly these 5 H2 sections, in this order, in the conversation's language, nothing else: Overview · Checklist · Current Activity · Next Steps · Key Findings / Notes. \`Checklist\` holds ONLY the user's actual work — never the tracking itself: no "read/update the progress file", "write progress", "sync tracking", "start tracking" or any other item about this document, and no meta-steps describing the tracking ritual.
-6. FIRST TOOL CALL of every user turn is a progress action — \`session_progress_status()\`, a partial write, or a read when you must check the current content — but that action is BOOKKEEPING, not work: never list it in \`Checklist\`, \`Current Activity\` or \`Next Steps\`, and it does NOT replace the close-out checklist write of rule 3. \`session_progress_read\` reports \`corrupted: true\` when the file repeats a title or section: then rewrite the whole document.
-7. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, a fresh checklist, and a \`progress\` that matches that fresh checklist — 0-5% when nothing in it is done yet); never keep or append the old one. Same objective → update in place (tick items, adjust \`progress\` and \`current_activity\`).
-8. FACTS, NOT PROSE — budget ~150 lines / ~12 KB, last section ~40 lines: \`key = value\` for settings, one table for repeating tuples, one statement per fact, no studies, logs, timings, machine specs or tool inventories; delete superseded text on every write. Over budget → the tool warns or refuses.
-9. Trust the write result (bytes, percent, counts, warnings) instead of re-reading the file.
-
-TEMPLATE (a NEW document starts at 0-5%, never at the sample below; a fresh checklist has no \`[x]\` yet)
----
-progress: 5%
-status: in_progress
-current_activity: "..."
----
-
-# <Goal Title>
-
-## Overview
-<objective + current status>
-
-## Checklist
-- [x] ...
-- [/] ...
-- [ ] ...
-
-## Current Activity
-<step running now>
-
-## Next Steps
-<planned actions>
-
-## Key Findings / Notes
-<decisions, chosen values, blockers — facts only>
-`;
-
-/** The prompt section, rebuilt per call so the gap the model is told about is the configured one. */
-export function progressPromptSection() {
-  return PROGRESS_PROMPT_SECTION.replaceAll('__MAX_PERCENT_GAP__', String(maxPercentGap));
-}
-
 export function apply(ctx, config = {}) {
   ctx.logger?.info?.('dsh-session-progress plugin loading...');
   disableTodoTool = config?.disableTodoTool !== false;
-  const configuredGap = Number(config?.maxPercentGap);
-  maxPercentGap = Number.isFinite(configuredGap) && configuredGap >= 0 ? configuredGap : DEFAULT_MAX_PERCENT_GAP;
+
   // 1. Inject System Prompt instructions
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
@@ -2280,7 +1600,7 @@ export function apply(ctx, config = {}) {
     }
   });
 
-  // 2. Register the progress tools (the ONLY supported way to read/replace the file)
+  // 2. Register the progress tools (the ONLY supported way to read/replace the document)
   ctx.inject(['tools'], (toolCtx) => {
     try {
       toolCtx.tools.register(buildProgressReadTool());
@@ -2304,15 +1624,13 @@ export function apply(ctx, config = {}) {
       agentCtx.on('agent/disposed', ({ agent }) => forgetTodoToolPolicy(agent));
       // Agents that were already live when this plugin applied (plugin reload mid-session).
       for (const agent of agentCtx.agents.list?.() ?? []) syncTodoToolPolicy(ctx, agent);
-      ctx.logger?.info?.(
-        `[dsh-session-progress] todo tool policy active (deny "${TODO_TOOL_NAME}" while tracking)`
-      );
+      ctx.logger?.info?.(`[dsh-session-progress] todo tool policy active (deny "${TODO_TOOL_NAME}" while tracking)`);
     } catch (e) {
       ctx.logger?.warn?.(`[dsh-session-progress] Failed to attach todo tool policy: ${e?.message || e}`);
     }
   });
 
-  // Handler for reading content
+  // Handler for reading the progress document
   const handleContent = async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2361,60 +1679,41 @@ export function apply(ctx, config = {}) {
 
     if (targetPath && fs.existsSync(targetPath)) {
       try {
-        const content = fs.readFileSync(targetPath, 'utf-8');
-        const stat = fs.statSync(targetPath);
-        const parsed = parseProgress(content);
-
-        return res.end(JSON.stringify({
-          success: true,
-          found: true,
-          hasFile: true,
-          enabled: !isSessionDisabled(effectiveSessionId),
-          sessionId: effectiveSessionId,
-          filePath: targetPath,
-          fileName: path.basename(targetPath),
-          percent: parsed.percent,
-          status: parsed.status,
-          currentActivity: parsed.currentActivity,
-          explicitPercent: parsed.explicitPercent,
-          checklistPercent: parsed.checklistPercent,
-          tasksTotal: parsed.tasksTotal,
-          tasksDone: parsed.tasksDone,
-          tasksInProgress: parsed.tasksInProgress,
-          tasksPending: parsed.tasksPending,
-          frontmatter: parsed.frontmatter,
-          content,
-          lastModified: stat.mtimeMs
-        }));
+        return res.end(JSON.stringify(describeRecord(record ?? { filePath: targetPath, sessionId: effectiveSessionId }, effectiveSessionId)));
       } catch (err) {
-        return res.end(JSON.stringify({
-          success: false,
-          found: false,
-          hasFile: false,
-          enabled: !isSessionDisabled(effectiveSessionId || qSessionId),
-          error: `Failed to read progress file: ${err?.message || err}`,
-          sessionId: qSessionId,
-          filePath: targetPath,
-          percent: 0,
-          content: ''
-        }));
+        return res.end(
+          JSON.stringify({
+            success: false,
+            found: false,
+            hasFile: false,
+            enabled: !isSessionDisabled(effectiveSessionId || qSessionId),
+            error: `Failed to read the progress document: ${err?.message || err}`,
+            sessionId: qSessionId,
+            filePath: targetPath,
+            percent: 0,
+            content: ''
+          })
+        );
       }
     }
 
-    return res.end(JSON.stringify({
-      success: true,
-      found: false,
-      hasFile: false,
-      enabled: !isSessionDisabled(effectiveSessionId),
-      sessionId: effectiveSessionId,
-      filePath: null,
-      percent: 0,
-      tasksTotal: 0,
-      tasksDone: 0,
-      tasksPending: 0,
-      content: '',
-      message: 'No progress file found for session'
-    }));
+    return res.end(
+      JSON.stringify({
+        success: true,
+        found: false,
+        hasFile: false,
+        enabled: !isSessionDisabled(effectiveSessionId),
+        sessionId: effectiveSessionId,
+        filePath: null,
+        percent: 0,
+        tasksTotal: 0,
+        tasksDone: 0,
+        tasksPending: 0,
+        checklist: [],
+        content: '',
+        message: 'No progress document found for session'
+      })
+    );
   };
 
   // Handler for checking or toggling session progress enabled state
@@ -2442,10 +1741,14 @@ export function apply(ctx, config = {}) {
     }
 
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
     req.on('end', () => {
       let params = {};
-      try { params = JSON.parse(body || '{}'); } catch (e) {}
+      try {
+        params = JSON.parse(body || '{}');
+      } catch (e) {}
       const qSessionId = params.sessionId || 'default';
       let targetEnabled = params.enabled;
       if (typeof targetEnabled !== 'boolean') {
@@ -2459,15 +1762,17 @@ export function apply(ctx, config = {}) {
       syncTodoToolPolicyForToggle(ctx, ctx.agents, qSessionId);
       const scope = qSessionId === DEFAULT_SCOPE ? 'default (new sessions)' : `session ${qSessionId}`;
       ctx.logger?.info?.(`[dsh-session-progress] ${scope} progress enabled set to ${isNowEnabled}`);
-      return res.end(JSON.stringify({
-        success: true,
-        sessionId: qSessionId,
-        enabled: isNowEnabled
-      }));
+      return res.end(
+        JSON.stringify({
+          success: true,
+          sessionId: qSessionId,
+          enabled: isNowEnabled
+        })
+      );
     });
   };
 
-  // Handler for opening file in OS editor
+  // Handler for opening the document in the OS editor
   const handleOpen = async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2480,7 +1785,9 @@ export function apply(ctx, config = {}) {
     }
 
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
     req.on('end', () => {
       let params = {};
       try {
@@ -2497,16 +1804,10 @@ export function apply(ctx, config = {}) {
 
       if (targetPath && fs.existsSync(targetPath)) {
         openInDefaultApp(targetPath);
-        return res.end(JSON.stringify({
-          success: true,
-          filePath: targetPath
-        }));
+        return res.end(JSON.stringify({ success: true, filePath: targetPath }));
       }
 
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'File path not found or does not exist on disk'
-      }));
+      return res.end(JSON.stringify({ success: false, error: 'File path not found or does not exist on disk' }));
     });
   };
 
