@@ -6,17 +6,26 @@
 
 ## 1. Mô tả công dụng của Plugin
 
+**Biết chính xác phiên làm việc dài của agent đã đi tới đâu — không cần lục lại log.** `dsh-session-progress` là plugin theo dõi tiến độ công việc theo thời gian thực cho **DeepSeek Harness (DSH / DSH Desktop)**: agent giữ một checklist sống của công việc, phần trăm hoàn thành được tính từ các ô đã tick, và mỗi session lưu tất cả trong một file JSON.
+
+<sub>Từ khoá: plugin DSH · DeepSeek Harness · tiến độ session · checklist có trọng số · theo dõi task · file tiến độ JSON</sub>
+
 <p align="center">
   <img src="assets/preview.png" alt="Panel Session Progress hiển thị dưới dạng tab native của right sidebar" width="800" />
 </p>
 
 <p align="center">
-  <img src="assets/composer-button.png" alt="Nút tiến độ trên thanh Input và Tooltip tóm tắt" width="800" />
+  <img src="assets/composer-button.png" alt="Nút tiến độ và popover trong hàng dock dưới ô nhập liệu" width="800" />
 </p>
 
-**dsh-session-progress** là plugin theo dõi tiến độ công việc và phiên làm việc theo thời gian thực dành cho **DeepSeek Harness (DSH / DSH Desktop)**.
+<p align="center"><sub>Cả hai ảnh được render từ chính HTML/CSS của plugin bằng <code>npm run shots</code>.</sub></p>
 
-Trong các phiên làm việc dài hoặc xử lý chuỗi tác vụ phức tạp, người dùng thường gặp khó khăn trong việc nắm bắt tiến độ tổng thể, các đầu việc đã hoàn thành hay công việc đang chạy nếu chỉ nhìn vào luồng chat dài.
+Trong các phiên làm việc dài hoặc chuỗi tác vụ phức tạp, rất khó để biết tiến độ tổng thể, đầu việc đang chạy hay bước tiếp theo nếu chỉ nhìn vào luồng chat dài. Plugin này giữ câu trả lời trong một cú click:
+
+- **Checklist sống thay vì phỏng đoán** — agent ghi lại việc đang làm thành các task có trọng số, lồng nhau từ cả một giai đoạn xuống một bước nhỏ, và tick dần khi làm xong.
+- **Phần trăm luôn khớp thực tế** — vòng tròn và pill `%` ở hàng dock dưới ô nhập liệu được tính từ các ô checkbox (done `1` · running `½` · pending `0`), nên không ai phải tự cộng và agent không bao giờ phải ghi số %.
+- **Một panel, không phải log** — tab **Session Progress** trong right sidebar của DSH hiển thị mục tiêu, checklist có trọng số kèm % từng item, hoạt động hiện tại, bước tiếp theo và ghi chú.
+- **Một bản ghi khi phiên kết thúc** — chính file đó là bản tóm tắt rõ ràng những gì đã làm, và file Markdown của v0.10.x được migrate sang JSON tự động ở lần đọc đầu tiên.
 
 ### Vị trí hiển thị
 
@@ -24,7 +33,7 @@ Plugin render **ngay trong right sidebar của DSH** — không tự vẽ lớp 
 
 | Thành phần | Vị trí |
 | --- | --- |
-| Vòng tròn tiến độ + pill `%` | Thanh công cụ cạnh ô nhập liệu, kế bên context meter |
+| Vòng tròn tiến độ + pill `%` | Hàng dock dưới ô nhập liệu, kế bên context meter (ẩn khi chưa có session) |
 | Panel tiến độ | Tab native của right sidebar, tên **Session Progress** |
 
 Bấm nút trên thanh nhập liệu (hoặc dòng *Click to open the progress panel* trong popover) sẽ mở tab đó và mở rộng cột phải. Vì là tab thật của sidebar, nó dock/float/split và bám theo session giống tab Files hay Document Preview.
@@ -132,6 +141,22 @@ Hoặc cài đặt trực tiếp qua `pnpm` trong thư mục profile Cordis:
 ```bash
 pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
+
+---
+
+## Câu hỏi thường gặp (FAQ)
+
+**Agent có phải tự ghi phần trăm không?**
+Không. Không có tool call nào truyền số % — phần trăm đi theo các ô checkbox, nên đổi trọng số hay tick thêm một ô là vòng tròn cập nhật ngay.
+
+**Dữ liệu tiến độ được lưu ở đâu?**
+Mỗi session một file JSON trong thư mục temp của hệ thống. Không ghi gì vào repository của bạn, và chính file đó là thứ panel đọc lại.
+
+**File Markdown của v0.10.x thì sao?**
+Được migrate sang schema JSON ngay lần đầu session đó được đọc — giữ nguyên checklist, trọng số và các ô đã tick.
+
+**Cần bản DSH nào?**
+Bản DSH phải có slot tab của right sidebar (`rightbar.session`, `sidebar.right.pane.tab`): DSH Desktop 0.9.0 trở lên, hoặc bản DSH CLI/web có right sidebar. Nút trên composer tự ẩn khi chưa có session nào để báo cáo.
 
 ---
 

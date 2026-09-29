@@ -6,17 +6,26 @@
 
 ## 1. Purpose & Overview
 
+**Know how far a long agent session has actually got — without digging through the logs.** `dsh-session-progress` is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**: the agent keeps a live checklist of the work, the completion percentage is computed from the ticked boxes, and each session stores it as a single JSON progress document.
+
+<sub>Topics: DSH plugin · DeepSeek Harness · session progress · weighted checklist · task tracking · JSON progress document</sub>
+
 <p align="center">
   <img src="assets/preview.png" alt="Session Progress panel rendered as a native right sidebar tab" width="800" />
 </p>
 
 <p align="center">
-  <img src="assets/composer-button.png" alt="Composer Toolbar Progress Button & Tooltip Preview" width="800" />
+  <img src="assets/composer-button.png" alt="Progress trigger and its popover in the dock row under the composer" width="800" />
 </p>
 
-**dsh-session-progress** is a real-time session progress and task tracking plugin for **DeepSeek Harness (DSH / DSH Desktop)**.
+<p align="center"><sub>Both images are rendered from the plugin's own HTML/CSS by <code>npm run shots</code>.</sub></p>
 
-In long-running or complex agentic sessions, it is often challenging for users to quickly determine the overall completion status, active subtasks, or upcoming milestones without sifting through extensive conversation logs.
+In long-running or complex agentic sessions it is hard to tell the overall completion status, the subtask running right now, or what comes next without sifting through a long conversation log. This plugin keeps that answer one click away:
+
+- **A live checklist instead of a guess** — the agent writes what it is doing as weighted tasks, nested from a whole phase down to a single step, and ticks them off as it goes.
+- **A percentage that always matches reality** — the ring and the `%` pill in the composer dock row are computed from the boxes (done `1` · running `½` · pending `0`), so nobody does the arithmetic and the agent never writes a number.
+- **A panel, not a log** — the **Session Progress** tab in DSH's own right sidebar shows the goal, the weighted checklist with each item's share, the current activity, the next steps and the working notes.
+- **A record when the session ends** — the same file stands as a clean summary of what got done, and a v0.10.x Markdown progress file is migrated to JSON automatically on first read.
 
 ### How it appears
 
@@ -24,7 +33,7 @@ The plugin renders **inside DSH's own right sidebar** — it does not draw an ov
 
 | Surface | Where it lives |
 | --- | --- |
-| Progress ring + `%` pill | The composer trailing toolbar, beside the context meter |
+| Progress ring + `%` pill | The composer **dock row under the input card**, beside the context meter (hidden until a session exists) |
 | Progress panel | A native right sidebar tab named **Session Progress** |
 
 Clicking the composer control (or the *Click to open the progress panel* hint in its popover) opens that tab and reveals the right column. Being an ordinary sidebar tab, it docks, floats, splits, and follows the session exactly like Files or the document preview.
@@ -132,6 +141,22 @@ Or install directly within your Cordis workspace profile:
 ```bash
 pnpm add https://github.com/nguyenduclong-ict/dsh-session-progress
 ```
+
+---
+
+## FAQ
+
+**Does the agent have to report a percentage?**
+No. No tool call ever carries a number — the percentage follows the boxes, so re-weighting an item or ticking one updates the ring immediately.
+
+**Where is the progress stored?**
+One JSON file per session in the system temp directory. Nothing is written into your repository, and that same file is what the panel reads back.
+
+**What happens to my v0.10.x Markdown progress file?**
+It is migrated to the JSON schema the first time that session is read — checklist, weights and ticked boxes preserved.
+
+**Which DSH builds does it need?**
+The right sidebar tab slots (`rightbar.session`, `sidebar.right.pane.tab`) must exist: DSH Desktop 0.9.0 or newer, or a DSH CLI/web build with the right sidebar. The composer trigger hides itself while there is no session to report on.
 
 ---
 
