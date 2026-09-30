@@ -13,7 +13,7 @@ const marker = '    return module.exports;';
 assert.ok(source.includes(marker), 'the client factory still ends with `return module.exports;`');
 const patched = source.replace(
   marker,
-  '    Object.assign(module.exports, { __render: { renderProgressPanelHtml, renderChecklistHtml, markdownBodyToHtml, formatShare, flattenChecklist, COMPOSER_DOCK_SLOT, findComposerDockHost, mountProgressButton, shouldShowProgressTrigger, currentSessionKey, ensureStyles, STYLE_ID } });\n' + marker
+  '    Object.assign(module.exports, { __render: { renderProgressPanelHtml, renderChecklistHtml, markdownBodyToHtml, formatShare, flattenChecklist, COMPOSER_DOCK_SLOT, findComposerDockHost, mountProgressButton, shouldShowProgressTrigger, currentSessionKey, isNewConversationScreen, ensureStyles, STYLE_ID } });\n' + marker
 );
 
 const React = {
@@ -48,7 +48,7 @@ new Function('window', 'console', 'document', patched)(
 );
 assert.ok(captured, 'the client module registered itself');
 const client = captured.factory(fakeRequire);
-const { renderProgressPanelHtml, renderChecklistHtml, markdownBodyToHtml, formatShare, flattenChecklist, COMPOSER_DOCK_SLOT, findComposerDockHost, mountProgressButton, shouldShowProgressTrigger, currentSessionKey, ensureStyles } = client.__render;
+const { renderProgressPanelHtml, renderChecklistHtml, markdownBodyToHtml, formatShare, flattenChecklist, COMPOSER_DOCK_SLOT, findComposerDockHost, mountProgressButton, shouldShowProgressTrigger, currentSessionKey, isNewConversationScreen, ensureStyles } = client.__render;
 
 /** The payload the /content endpoint returns for a two-level, weighted checklist. */
 function payload(overrides = {}) {
@@ -331,6 +331,59 @@ test('the trigger is hidden while there is no session to report on', () => {
     assert.equal(shouldShowProgressTrigger(), false);
   } finally {
     unbindDefault();
+  }
+});
+
+test('the hero screen hides the trigger even while a stale session is still resolvable', () => {
+  const sessionId = 'session-0b1d8545-6b67-40fe-aa4f-46ecdbc750c0';
+  // The right sidebar keeps advertising the session that was open before "+ New"…
+  const owner = {
+    getAttribute: (name) => (name === 'data-sidebar-right-session' ? sessionId : null),
+    dataset: { sidebarRightSession: sessionId }
+  };
+  // …the view binds a session that holds nothing yet (`shellPhase === "blank"`)…
+  const blankSessionBody = {
+    hasAttribute: (name) => name === 'data-conversation-session',
+    querySelector: (selector) => (selector.includes('composerHero') ? { className: 'wSkVaW_composerHero' } : null)
+  };
+  // …or binds no session at all (`sessionId === undefined`).
+  const sessionlessBody = { hasAttribute: () => false, querySelector: () => null };
+  // A real conversation on screen.
+  const conversationBody = {
+    hasAttribute: (name) => name === 'data-conversation-session',
+    querySelector: () => null
+  };
+
+  let heroDock = null;
+  let viewBody = blankSessionBody;
+  fakeDocument.querySelector = (selector) => {
+    if (selector === '[data-slot="conversation.hero.dock"]') return heroDock;
+    if (selector === '[data-conversation-content]') return viewBody;
+    if (selector === '[data-sidebar-right-session]') return owner;
+    return null;
+  };
+
+  try {
+    assert.equal(isNewConversationScreen(), true, 'a blank session still paints the hero composer');
+    assert.equal(currentSessionKey(), null, 'the stale session id must not win');
+    assert.equal(shouldShowProgressTrigger(), false, 'nothing to report yet ⇒ no trigger');
+
+    viewBody = sessionlessBody;
+    assert.equal(isNewConversationScreen(), true, 'no session bound to the view');
+    assert.equal(shouldShowProgressTrigger(), false);
+
+    heroDock = {};
+    assert.equal(isNewConversationScreen(), true, 'the hero dock outlet alone is enough');
+    assert.equal(shouldShowProgressTrigger(), false);
+
+    // First message sent: the hero is gone, so the trigger comes back.
+    heroDock = null;
+    viewBody = conversationBody;
+    assert.equal(isNewConversationScreen(), false);
+    assert.equal(currentSessionKey(), sessionId);
+    assert.equal(shouldShowProgressTrigger(), true);
+  } finally {
+    delete fakeDocument.querySelector;
   }
 });
 

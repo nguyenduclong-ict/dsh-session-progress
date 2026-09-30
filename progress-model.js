@@ -204,7 +204,7 @@ export function normalizeItem(raw, path = '1') {
     throw new Error(`checklist item ${path} must be a string or an object like { "text": "…", "weight": 20, "children": [] }.`);
   }
 
-  let text = String(pick(source, TEXT_KEYS) ?? '').trim();
+  let text = decodeEscapedLineBreaks(String(pick(source, TEXT_KEYS) ?? '')).trim();
   const rawChildren = pick(source, CHILD_KEYS);
   let weight = parseWeightValue(pick(source, WEIGHT_KEYS));
   let state = pick(source, STATE_KEYS) === undefined ? null : normalizeState(pick(source, STATE_KEYS), 'pending');
@@ -345,6 +345,35 @@ export function normalizeChecklist(list) {
   return { items, warnings, errors };
 }
 
+/**
+ * Decode literal `\n` / `\r\n` escape sequences that arrived as plain text.
+ *
+ * A caller that composes the tool arguments as JSON text by hand sometimes escapes twice, so a field
+ * holds the two characters `\` + `n` where a line break was meant (`notes: "a.\nDeploy: …"`) and the
+ * panel then shows a visible `\n`. Only a sequence sitting at a sentence boundary is decoded; a
+ * backslash that follows a word character is left exactly as it came, so Windows paths
+ * (`docs\notes.md`, `C:\new`) and prose that quotes the escape itself (`` `\n` ``) keep their meaning.
+ * Text that already carries a real line break is never touched, which also makes this idempotent.
+ *
+ * @param {*} text - the raw field value.
+ * @returns {string} the field with intended line breaks restored.
+ */
+export function decodeEscapedLineBreaks(text) {
+  const value = String(text ?? '');
+  if (!value.includes('\\') || value.includes('\n')) return value;
+
+  return value.replace(/\\(r\\n|n)/g, (match, kind, offset, whole) => {
+    const before = offset > 0 ? whole[offset - 1] : '';
+    // Mid-word backslash: a path fragment, not a line break.
+    if (before !== '' && !/[ \t.,;:!?)\]}"'|>»]/.test(before)) return match;
+    // `C:\new`, `D:\temp`: a drive-qualified path, not a line break.
+    if (before === ':' && /[A-Za-z]/.test(whole[offset - 2] || '') && !/[A-Za-z0-9]/.test(whole[offset - 3] || '')) {
+      return match;
+    }
+    return kind === 'r\\n' ? '\r\n' : '\n';
+  });
+}
+
 /** Free-text fields copied from an incoming patch, trimmed; `undefined` keys are dropped. */
 function pickTextFields(patch, target, warnings) {
   const aliases = {
@@ -361,7 +390,7 @@ function pickTextFields(patch, target, warnings) {
       warnings.push(`${canonical} must be a string; the value sent was ignored.`);
       continue;
     }
-    target[canonical] = String(value).replace(/\r\n/g, '\n').trim();
+    target[canonical] = decodeEscapedLineBreaks(String(value)).replace(/\r\n/g, '\n').trim();
   }
 }
 

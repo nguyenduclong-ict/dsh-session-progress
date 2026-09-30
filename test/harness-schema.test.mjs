@@ -81,4 +81,70 @@ test('every tool schema fits the harness-supported JSON Schema subset', async (t
   // A percentage is not merely ignored — the parameter does not exist.
   assert.equal(Object.hasOwn(write.parameters.properties, 'progress'), false, 'there is no progress parameter');
   assert.equal(Object.hasOwn(write.parameters.properties, 'percent'), false, 'there is no percent parameter');
+
+  // The values a tool returns must validate, not only its schema. A finished document has no step in
+  // progress, so `current` comes back `null` and the schema has to admit it.
+  const status = tools.find((tool) => tool.name === 'session_progress_status');
+  const statusValues = [
+    {
+      label: 'a step in progress',
+      value: {
+        exists: true,
+        title: 'Ship it',
+        percent: 35,
+        exactPercent: 35,
+        status: 'in_progress',
+        currentActivity: 'Rewriting the host',
+        current: { text: 'Rewrite the host', path: '2', index: 2, box: '[/]', weightPercent: 30 },
+        upcoming: [{ path: '3', text: 'Ship the panel', weightPercent: 50 }],
+        nextSteps: '1. Ship the panel',
+        tasksTotal: 3,
+        tasksDone: 1,
+        tasksInProgress: 1,
+        tasksPending: 1,
+        warnings: []
+      }
+    },
+    {
+      label: 'every item done (current: null)',
+      value: {
+        exists: true,
+        title: 'Ship it',
+        percent: 100,
+        exactPercent: 100,
+        status: 'completed',
+        currentActivity: '',
+        current: null,
+        upcoming: [],
+        nextSteps: '',
+        tasksTotal: 3,
+        tasksDone: 3,
+        tasksInProgress: 0,
+        tasksPending: 0,
+        warnings: []
+      }
+    },
+    {
+      label: 'no document yet',
+      value: {
+        exists: false,
+        title: '',
+        percent: 0,
+        exactPercent: 0,
+        status: 'starting',
+        currentActivity: '',
+        upcoming: [],
+        nextSteps: '',
+        tasksTotal: 0,
+        tasksDone: 0,
+        tasksInProgress: 0,
+        tasksPending: 0,
+        warnings: []
+      }
+    }
+  ];
+  for (const sample of statusValues) {
+    const violations = validateJsonSchemaValue(status.output.schema, sample.value, '');
+    assert.deepEqual(violations, [], `session_progress_status output for ${sample.label} must validate`);
+  }
 });

@@ -9,7 +9,9 @@ import {
   buildProgressCheckDoneTool,
   buildProgressReadTool,
   buildProgressStatusTool,
-  buildProgressWriteTool
+  buildProgressWriteTool,
+  renderProgressReadResult,
+  renderProgressStatusResult
 } from '../index.js';
 
 const write = buildProgressWriteTool();
@@ -225,6 +227,25 @@ test('a patch cannot carry a percentage, and refuses to mix shapes', async (t) =
     () => write.execute({ content: { title: 'T' }, current_activity: 'x' }, session.exec),
     /never both/
   );
+});
+
+test('the empty-session hint states the state and names the tool, nothing more', async (t) => {
+  const session = makeSession();
+  t.after(() => session.cleanup());
+
+  const statusText = renderProgressStatusResult(status.execute({}, session.exec));
+  const readText = renderProgressReadResult(read.execute({}, session.exec));
+
+  for (const text of [statusText, readText]) {
+    assert.match(text, /^No progress document yet for this session\./);
+    assert.match(text, /Create it with `session_progress_write`/);
+    // The shape, the rules and the template live in the tool's own description and in the injected
+    // prompt section; the hint must not grow a second copy of them.
+    assert.ok(!text.includes('{ content: {'), 'the hint does not restate the document shape');
+    assert.ok(!text.includes('<step>'), 'the hint does not restate the template');
+    assert.ok(!/never send one|percentage is computed/.test(text), 'the hint does not restate the rules');
+  }
+  assert.equal(statusText, readText, 'both read tools point at the same hint');
 });
 
 test('a legacy Markdown progress file is migrated to JSON on first read', async (t) => {

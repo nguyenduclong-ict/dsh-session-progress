@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-progress",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "Session progress tracking for DeepSeek Harness (DSH Desktop): a live nested checklist with per-item weights, a progress ring in the composer, and a native right sidebar panel.",
   "type": "module",
   "main": "./index.js",

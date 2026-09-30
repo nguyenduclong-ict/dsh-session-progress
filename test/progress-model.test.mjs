@@ -7,6 +7,7 @@ import {
   createEmptyProgress,
   currentItem,
   advanceToNext,
+  decodeEscapedLineBreaks,
   deriveStatus,
   matchChecklistItem,
   migrateLegacyMarkdown,
@@ -245,4 +246,49 @@ test('an empty document serializes and computes to zero', () => {
   assert.equal(summary.percent, 0);
   assert.equal(summary.tasksTotal, 0);
   assert.equal(deriveStatus(progress, summary).status, 'starting');
+});
+
+// --- literal `\n` that arrived double-escaped (it must render as a real line break) ---
+
+test('decodeEscapedLineBreaks restores line breaks written at a sentence boundary', () => {
+  assert.equal(
+    decodeEscapedLineBreaks('docs/042).\\nDeploy: run 3667; container healthy.\\nSố đo: 12 dòng.'),
+    'docs/042).\nDeploy: run 3667; container healthy.\nSố đo: 12 dòng.'
+  );
+  assert.equal(decodeEscapedLineBreaks('header:\\r\\nbody'), 'header:\r\nbody');
+  assert.equal(decodeEscapedLineBreaks('\\nleading'), '\nleading');
+  assert.equal(decodeEscapedLineBreaks(''), '');
+});
+
+test('decodeEscapedLineBreaks never rewrites a path or prose that quotes the escape', () => {
+  // A Windows path spelled with backslashes keeps them: the backslash follows a word character.
+  assert.equal(decodeEscapedLineBreaks('docs\\notes.md and backend\\new\\file.py'), 'docs\\notes.md and backend\\new\\file.py');
+  assert.equal(decodeEscapedLineBreaks('C:\\new\\temp'), 'C:\\new\\temp');
+  // Prose about the escape itself (`\n` in a code span) is untouched.
+  assert.equal(decodeEscapedLineBreaks('đang lưu literal `\\n` thay vì xuống dòng'), 'đang lưu literal `\\n` thay vì xuống dòng');
+  // Text that already has a real line break is left alone, so decoding is idempotent.
+  const real = 'a.\nDeploy: b';
+  assert.equal(decodeEscapedLineBreaks(real), real);
+});
+
+test('a double-escaped field reaches the document and the file as real line breaks', () => {
+  const { progress } = normalizeProgress(
+    {
+      title: 'T',
+      overview: 'Mục tiêu: xong.\\nTrạng thái: đang chạy.',
+      notes: 'Commit 53606e1 đã push.\\nDeploy run 3667 thành công.',
+      checklist: [{ text: 'xong.\\nBước tiếp', weight: 100 }]
+    },
+    null,
+    { sessionId: 's1' }
+  );
+
+  assert.equal(progress.overview, 'Mục tiêu: xong.\nTrạng thái: đang chạy.');
+  assert.equal(progress.notes, 'Commit 53606e1 đã push.\nDeploy run 3667 thành công.');
+  assert.equal(progress.checklist[0].text, 'xong.\nBước tiếp');
+
+  // Reading the serialized document back applies the same normalization, and it stays stable.
+  const reread = parseProgressFileText(serializeProgress(progress), 's1').progress;
+  assert.equal(reread.notes, progress.notes);
+  assert.equal(reread.overview, progress.overview);
 });

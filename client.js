@@ -1097,8 +1097,52 @@ window.__ModuleLoader__.load({
      * The active session key, or null on a brand-new session screen (nothing selected yet).
      */
     function currentSessionKey() {
+      if (isNewConversationScreen()) return null;
       const sid = resolveCurrentSessionId() || activeSessionId;
       return sid && sid !== 'default' ? String(sid) : null;
+    }
+
+    /**
+     * Whether the app is on the brand-new-conversation screen (the "hero" composer).
+     *
+     * The shell decides that itself — `sessionId === undefined || shellPhase === "blank"` — and paints
+     * the hero there: the `conversation.hero.*` outlets, the `..._composerHero` / `..._heroWorkspaceRow`
+     * modifier classes, and no `data-conversation-session` on the conversation body
+     * (`@deepseek-ai/dsh-client-ui-conversation`: `HeroShell`, `ConversationRoot`).
+     *
+     * The DOM has to answer it, because every other source keeps naming the conversation that was open
+     * *before* "+ New": `uiSession.adapter.current`, the retained session row and the right sidebar's
+     * own `[data-sidebar-right-session]` all still carry the previous id while the hero is up.
+     */
+    function isNewConversationScreen() {
+      try {
+        // The hero dock outlet exists only while the shell holds no session at all.
+        if (document.querySelector('[data-slot="conversation.hero.dock"]')) return true;
+      } catch (e) {}
+
+      try {
+        const body = document.querySelector('[data-conversation-content]');
+        if (!body || typeof body.hasAttribute !== 'function') return false;
+        // Nothing bound to the view: the shell passes `sessionId === undefined`.
+        if (!body.hasAttribute('data-conversation-session')) return true;
+        // A session exists but holds nothing yet (`shellPhase === "blank"`) — still nothing to report.
+        if (typeof body.querySelector !== 'function') return false;
+        return Boolean(body.querySelector('[class*="composerHero"], [class*="heroWorkspaceRow"]'));
+      } catch (e) {
+        return false;
+      }
+    }
+
+    /**
+     * Whether the composer trigger is worth showing at all.
+     *
+     * Hidden on the new-conversation screen: before a session has any content there is no progress to
+     * report. The only thing the control carried there was the ON/OFF switch for sessions about
+     * to be created, which is why it used to stay mounted — `defaultEnabled` in
+     * `~/.dsh-session-progress-settings.json` still covers that case.
+     */
+    function shouldShowProgressTrigger() {
+      return currentSessionKey() !== null;
     }
 
     /**
@@ -1106,18 +1150,6 @@ window.__ModuleLoader__.load({
      */
     function hasProgressFile() {
       return Boolean(latestData && latestData.found && latestData.hasFile);
-    }
-
-    /**
-     * Whether the composer trigger is worth showing at all.
-     *
-     * Hidden on the new-conversation screen: before a session exists there is no progress to
-     * report. The only thing the control carried there was the ON/OFF switch for sessions about
-     * to be created, which is why it used to stay mounted — `defaultEnabled` in
-     * `~/.dsh-session-progress-settings.json` still covers that case.
-     */
-    function shouldShowProgressTrigger() {
-      return currentSessionKey() !== null;
     }
 
     /**

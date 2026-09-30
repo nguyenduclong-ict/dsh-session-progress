@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 const SETTINGS_FILE = path.join(os.tmpdir(), `dsh-sp-settings-${randomUUID()}.json`);
 process.env.DSH_SESSION_PROGRESS_SETTINGS = SETTINGS_FILE;
 
-const { apply, DEFAULT_SCOPE, isSessionDisabled, setSessionEnabled } = await import('../index.js');
+const { apply, DEFAULT_SCOPE, isSessionDisabled, setSessionEnabled, buildProgressStatusTool, renderProgressStatusResult } = await import('../index.js');
 
 /** A context that records what the plugin does, without a running harness. */
 function makeContext() {
@@ -118,6 +118,13 @@ test('the injected prompt documents the tools and forbids a manual percentage', 
   setSessionEnabled(sessionId, false);
   assert.equal(section.text({ agent: { session: { id: sessionId } } }), '');
   assert.equal(isSessionDisabled(sessionId), true);
+
+  // ...and the empty-document hint says so, instead of asking for a document the panel will not show.
+  const offHint = renderProgressStatusResult(buildProgressStatusTool().execute({}, { agent: { session: { id: sessionId } } }));
+  assert.match(offHint, /^No progress document yet for this session\./);
+  assert.match(offHint, /\[plugin\] progress tracking is switched OFF for this session/);
+  assert.match(offHint, /will not show a document created now/);
+
   setSessionEnabled(sessionId, true);
   assert.ok(section.text({ agent: { session: { id: sessionId } } }).length > 500);
   assert.equal(isSessionDisabled(DEFAULT_SCOPE), false);

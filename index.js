@@ -635,11 +635,11 @@ export function buildProgressWriteTool() {
           description: 'The complete progress document as an object: { title, overview, status, current_activity, checklist: [...], next_steps, notes }. Replaces the document. A JSON string of the same object is also accepted. Never combine with a patch field.'
         },
         title: { type: 'string', description: 'Goal title, one line.' },
-        overview: { type: 'string', description: 'Objective plus the current status, as short factual lines.' },
+        overview: { type: 'string', description: 'Objective plus the current status, as short factual lines (real line breaks, never a literal `\\n`).' },
         status: { type: 'string', enum: ['starting', 'in_progress', 'blocked', 'completed'], description: 'Optional: it is derived from the checklist, except `blocked`, which only you can declare.' },
         current_activity: { type: 'string', description: 'One line describing the step running now.' },
-        next_steps: { type: 'string', description: 'The plan after the current step.' },
-        notes: { type: 'string', description: 'Decisions, chosen values, blockers — facts only.' },
+        next_steps: { type: 'string', description: 'The plan after the current step (real line breaks, never a literal `\\n`).' },
+        notes: { type: 'string', description: 'Decisions, chosen values, blockers — facts only (real line breaks, never a literal `\\n`).' },
         checklist: { type: 'array', items: ITEM_SCHEMA, description: 'The checklist tree as the write leaves it; combined with `checklist_mode`.' },
         checklist_mode: { type: 'string', enum: ['replace', 'append', 'merge'], description: 'How `checklist` combines with the stored one: replace (default) | append (add at the end) | merge (patch in place by position).' },
         add: { type: 'array', items: ITEM_SCHEMA, description: 'Items to append; `parent` picks a group to append into.' },
@@ -1007,7 +1007,7 @@ export function buildProgressReadTool() {
         tasksPending: 0,
         corrupted: false,
         migrated: false,
-        warnings: [],
+        warnings: isSessionDisabled(sessionId) ? [TRACKING_OFF_ON_CREATE_NOTE] : [],
         available: [],
         missing: [],
         checklist: [],
@@ -1074,6 +1074,33 @@ export function buildProgressReadTool() {
   };
 }
 
+// ─────────────────────── the no-document-yet hint ───────────────────────
+//
+// Both read tools render this text, so it lives in one place. It states the state and names the tool
+// that ends it — nothing more: the document's fields, the two write shapes and the computed
+// percentage are already in `session_progress_write`'s own description and schema, and the injected
+// prompt section carries the rules. A second copy here only goes stale.
+
+const EMPTY_DOCUMENT_HINT = 'No progress document yet for this session. Create it with `session_progress_write`.';
+
+/**
+ * The note the no-document hint carries when tracking is switched off for this session: the write
+ * the hint asks for would land in a document the panel deliberately does not show.
+ */
+const TRACKING_OFF_ON_CREATE_NOTE =
+  'progress tracking is switched OFF for this session: the panel will not show a document created now until the user switches it back on.';
+
+/**
+ * The empty-document hint plus the plugin notes that change what to do about it (today: tracking
+ * switched off for the session, which the panel will honour by showing nothing).
+ * @param {string[]} [warnings] - the tool result's warnings.
+ * @returns {string} the text the model receives.
+ */
+function emptyDocumentText(warnings) {
+  const notes = Array.isArray(warnings) ? warnings.filter((note) => typeof note === 'string' && note !== '') : [];
+  return [EMPTY_DOCUMENT_HINT, ...notes.map((note) => `\n[plugin] ${note}`)].join('');
+}
+
 /**
  * Render the read-tool result: the document (or the requested sections), plus an actionable trailer
  * when the plugin has something the raw document cannot say by itself.
@@ -1082,7 +1109,7 @@ export function buildProgressReadTool() {
  */
 export function renderProgressReadResult(value) {
   if (!value.exists) {
-    return 'No progress document yet for this session. Create it with session_progress_write, sending `content` with the whole document.';
+    return emptyDocumentText(value.warnings);
   }
   const notes = [];
   if (value.corrupted) {
@@ -1175,16 +1202,24 @@ export function buildProgressStatusTool() {
           exactPercent: { type: 'number' },
           status: { type: 'string' },
           currentActivity: { type: 'string' },
+          // `null` while no step is in progress (every item done, or an empty checklist): the value
+          // is real, so the schema has to admit it — a bare `type: "object"` rejects the tool's own
+          // result on a finished document.
           current: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              text: { type: 'string' },
-              path: { type: 'string' },
-              index: { type: 'integer' },
-              box: { type: 'string' },
-              weightPercent: { type: 'number' }
-            }
+            oneOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  text: { type: 'string' },
+                  path: { type: 'string' },
+                  index: { type: 'integer' },
+                  box: { type: 'string' },
+                  weightPercent: { type: 'number' }
+                }
+              },
+              { type: 'null' }
+            ]
           },
           upcoming: {
             type: 'array',
@@ -1224,7 +1259,7 @@ export function buildProgressStatusTool() {
           tasksDone: 0,
           tasksInProgress: 0,
           tasksPending: 0,
-          warnings: []
+          warnings: isSessionDisabled(sessionId) ? [TRACKING_OFF_ON_CREATE_NOTE] : []
         };
       }
 
@@ -1241,7 +1276,7 @@ export function buildProgressStatusTool() {
 /** Render the status tool's result: one screen, no whole document. */
 export function renderProgressStatusResult(value) {
   if (!value.exists) {
-    return 'No progress document yet for this session. Create it with session_progress_write, sending `content` with the whole document.';
+    return emptyDocumentText(value.warnings);
   }
   const parts = [
     value.title ? `Goal: ${value.title}` : null,
@@ -1429,7 +1464,7 @@ Keep the session progress document current through this plugin's tools ONLY: \`s
 5. WRITE ONCE OR TWICE PER TURN — a bookkeeping patch near the start, plus ONE close-out write when the work moved. Finishing a step is ONE call: \`session_progress_check_done({ item?: "snippet or #2.1" })\` ticks the step in progress (or the one you name), promotes the next \`[ ]\` step to running and recomputes the percentage. Use \`session_progress_write({ check: [...] })\` to move several boxes without promoting. The checklist is the user's measure of the work, so it must be TRUE at the end of every turn, never "next turn". Never rewrite the checklist just to move a box — a re-planned list silently drops the boxes the user was reading, and the write result tells you when the boxes did not move.
 6. MATCHERS. A matcher is a distinctive text snippet, a row number (\`#3\`, rows as displayed) or a path (\`#2.1\` = 2nd item, 1st child). An unknown or ambiguous matcher is refused with the full item list, so nothing is silently missed.
 7. READ THE LEAST YOU NEED — \`session_progress_status()\` is the cheapest first look of a turn: the step in progress, the pending steps after it and the plan, without the document. \`session_progress_read({ sections: ["Checklist"] })\` returns the sections you name (Overview · Checklist · Current Activity · Next Steps · Notes); omit \`sections\` only when you truly need everything. The first tool call of every user turn is a progress action, but that action is BOOKKEEPING: never list it in the Checklist, and it does not replace the close-out of rule 5.
-8. FACTUAL PROSE — \`overview\`, \`next_steps\` and \`notes\` are a status snapshot, not a report: \`key = value\` for settings, one statement per fact, no logs, timings, method notes or tool inventories, and delete superseded text on every write. Keep the whole document under ~40 KB.
+8. FACTUAL PROSE — \`overview\`, \`next_steps\` and \`notes\` are a status snapshot, not a report: \`key = value\` for settings, one statement per fact, no logs, timings, method notes or tool inventories, and delete superseded text on every write. Keep the whole document under ~40 KB. Multi-line prose carries real line breaks, one fact per line — never the two characters \`\\n\`.
 9. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, fresh checklist and weights); never append the old one. Same objective → patch in place.
 10. Trust the write result (percent, counts, warnings) instead of re-reading the document.
 
