@@ -25,6 +25,7 @@ Trong các phiên làm việc dài hoặc chuỗi tác vụ phức tạp, rất 
 - **Checklist sống thay vì phỏng đoán** — agent ghi lại việc đang làm thành các task có trọng số, lồng nhau từ cả một giai đoạn xuống một bước nhỏ, và tick dần khi làm xong.
 - **Phần trăm luôn khớp thực tế** — vòng tròn và pill `%` ở hàng dock dưới ô nhập liệu được tính từ các ô checkbox (done `1` · running `½` · pending `0`), nên không ai phải tự cộng và agent không bao giờ phải ghi số %.
 - **Một panel, không phải log** — tab **Session Progress** trong right sidebar của DSH hiển thị mục tiêu, checklist có trọng số kèm % từng item, hoạt động hiện tại, bước tiếp theo và ghi chú.
+- **Nội dung đọc được ngay** — Overview, Current Activity, Next Steps và Key Findings / Notes là **Markdown**: agent trình bày mỗi dòng một ý, gạch đầu dòng `-`, backtick cho đường dẫn hay câu lệnh, hoặc một bảng nhỏ, thay vì một khối chữ dài.
 - **Một bản ghi khi phiên kết thúc** — chính file đó là bản tóm tắt rõ ràng những gì đã làm, và file Markdown của v0.10.x được migrate sang JSON tự động ở lần đọc đầu tiên.
 
 ### Vị trí hiển thị

@@ -25,6 +25,7 @@ In long-running or complex agentic sessions it is hard to tell the overall compl
 - **A live checklist instead of a guess** — the agent writes what it is doing as weighted tasks, nested from a whole phase down to a single step, and ticks them off as it goes.
 - **A percentage that always matches reality** — the ring and the `%` pill in the composer dock row are computed from the boxes (done `1` · running `½` · pending `0`), so nobody does the arithmetic and the agent never writes a number.
 - **A panel, not a log** — the **Session Progress** tab in DSH's own right sidebar shows the goal, the weighted checklist with each item's share, the current activity, the next steps and the working notes.
+- **Prose that reads at a glance** — Overview, Current Activity, Next Steps and Key Findings / Notes are **Markdown**: the agent lays the state out as one fact per line, `-` bullets, backticks around a path or command, or a small table, instead of one wall of text.
 - **A record when the session ends** — the same file stands as a clean summary of what got done, and a v0.10.x Markdown progress file is migrated to JSON automatically on first read.
 
 ### How it appears

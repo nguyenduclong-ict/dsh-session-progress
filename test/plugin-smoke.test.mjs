@@ -112,6 +112,8 @@ test('the injected prompt documents the tools and forbids a manual percentage', 
   }
   assert.match(text, /THE PERCENTAGE IS COMPUTED, NEVER WRITTEN/);
   assert.match(text, /TEMPLATE/);
+  assert.match(text, /are rendered as \*\*Markdown\*\*/, 'the prompt tells the agent the prose sections are Markdown');
+  assert.match(text, /prose fields are Markdown/, 'the template says the prose fields are Markdown');
   assert.ok(!text.includes('__'), 'no unsubstituted placeholder survived');
 
   // A session with tracking switched off gets no prompt section at all.

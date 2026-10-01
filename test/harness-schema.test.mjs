@@ -82,6 +82,13 @@ test('every tool schema fits the harness-supported JSON Schema subset', async (t
   assert.equal(Object.hasOwn(write.parameters.properties, 'progress'), false, 'there is no progress parameter');
   assert.equal(Object.hasOwn(write.parameters.properties, 'percent'), false, 'there is no percent parameter');
 
+  // The prose fields advertise the Markdown the panel renders, and still refuse a literal `\n`.
+  for (const field of ['overview', 'next_steps', 'notes']) {
+    const description = write.parameters.properties[field].description;
+    assert.match(description, /Markdown is rendered/, `${field} says its Markdown is rendered`);
+    assert.match(description, /never a literal/, `${field} still refuses a literal two-character escape`);
+  }
+
   // The values a tool returns must validate, not only its schema. A finished document has no step in
   // progress, so `current` comes back `null` and the schema has to admit it.
   const status = tools.find((tool) => tool.name === 'session_progress_status');

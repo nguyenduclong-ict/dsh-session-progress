@@ -635,11 +635,11 @@ export function buildProgressWriteTool() {
           description: 'The complete progress document as an object: { title, overview, status, current_activity, checklist: [...], next_steps, notes }. Replaces the document. A JSON string of the same object is also accepted. Never combine with a patch field.'
         },
         title: { type: 'string', description: 'Goal title, one line.' },
-        overview: { type: 'string', description: 'Objective plus the current status, as short factual lines (real line breaks, never a literal `\\n`).' },
+        overview: { type: 'string', description: 'Objective plus the current status, as short factual lines. Markdown is rendered (`-` bullets, `**bold**`, backticks, small tables) — real line breaks, never a literal `\\n`.' },
         status: { type: 'string', enum: ['starting', 'in_progress', 'blocked', 'completed'], description: 'Optional: it is derived from the checklist, except `blocked`, which only you can declare.' },
-        current_activity: { type: 'string', description: 'One line describing the step running now.' },
-        next_steps: { type: 'string', description: 'The plan after the current step (real line breaks, never a literal `\\n`).' },
-        notes: { type: 'string', description: 'Decisions, chosen values, blockers — facts only (real line breaks, never a literal `\\n`).' },
+        current_activity: { type: 'string', description: 'One line describing the step running now. Markdown is rendered.' },
+        next_steps: { type: 'string', description: 'The plan after the current step. Markdown is rendered (`-` bullets, backticks) — real line breaks, never a literal `\\n`.' },
+        notes: { type: 'string', description: 'Decisions, chosen values, blockers — facts only. Markdown is rendered (`-` bullets, `**bold**`, a small table, backticks) — real line breaks, never a literal `\\n`.' },
         checklist: { type: 'array', items: ITEM_SCHEMA, description: 'The checklist tree as the write leaves it; combined with `checklist_mode`.' },
         checklist_mode: { type: 'string', enum: ['replace', 'append', 'merge'], description: 'How `checklist` combines with the stored one: replace (default) | append (add at the end) | merge (patch in place by position).' },
         add: { type: 'array', items: ITEM_SCHEMA, description: 'Items to append; `parent` picks a group to append into.' },
@@ -1464,11 +1464,11 @@ Keep the session progress document current through this plugin's tools ONLY: \`s
 5. WRITE ONCE OR TWICE PER TURN — a bookkeeping patch near the start, plus ONE close-out write when the work moved. Finishing a step is ONE call: \`session_progress_check_done({ item?: "snippet or #2.1" })\` ticks the step in progress (or the one you name), promotes the next \`[ ]\` step to running and recomputes the percentage. Use \`session_progress_write({ check: [...] })\` to move several boxes without promoting. The checklist is the user's measure of the work, so it must be TRUE at the end of every turn, never "next turn". Never rewrite the checklist just to move a box — a re-planned list silently drops the boxes the user was reading, and the write result tells you when the boxes did not move.
 6. MATCHERS. A matcher is a distinctive text snippet, a row number (\`#3\`, rows as displayed) or a path (\`#2.1\` = 2nd item, 1st child). An unknown or ambiguous matcher is refused with the full item list, so nothing is silently missed.
 7. READ THE LEAST YOU NEED — \`session_progress_status()\` is the cheapest first look of a turn: the step in progress, the pending steps after it and the plan, without the document. \`session_progress_read({ sections: ["Checklist"] })\` returns the sections you name (Overview · Checklist · Current Activity · Next Steps · Notes); omit \`sections\` only when you truly need everything. The first tool call of every user turn is a progress action, but that action is BOOKKEEPING: never list it in the Checklist, and it does not replace the close-out of rule 5.
-8. FACTUAL PROSE — \`overview\`, \`next_steps\` and \`notes\` are a status snapshot, not a report: \`key = value\` for settings, one statement per fact, no logs, timings, method notes or tool inventories, and delete superseded text on every write. Keep the whole document under ~40 KB. Multi-line prose carries real line breaks, one fact per line — never the two characters \`\\n\`.
+8. FACTUAL PROSE — \`overview\`, \`next_steps\` and \`notes\` are a status snapshot, not a report: \`key = value\` for settings, one statement per fact, no logs, timings, method notes or tool inventories, and delete superseded text on every write. Keep the whole document under ~40 KB. Those sections — Overview, Current Activity, Next Steps, Key Findings / Notes — are rendered as **Markdown**, so present the state the way it reads best: real line breaks, one fact per line (never the two characters \`\\n\`), \`-\` bullets for a list of facts, backticks around a path, command or identifier, a small table with its \`|---|\` separator row when several rows share the same columns, \`**bold**\` for the single thing that matters. Formatting that adds no fact is noise: the checklist carries the plan, the prose carries the state.
 9. NEW OBJECTIVE while the tracked one is finished → write a brand-new document for the new task only (new title, fresh checklist and weights); never append the old one. Same objective → patch in place.
 10. Trust the write result (percent, counts, warnings) instead of re-reading the document.
 
-TEMPLATE (create with one call; weights are the item's share of the job)
+TEMPLATE (create with one call; weights are the item's share of the job; prose fields are Markdown)
 session_progress_write({ content: {
   title: "<Goal Title>",
   overview: "<objective + current status>",
@@ -1479,8 +1479,8 @@ session_progress_write({ content: {
     { text: "<step>", weight: 30 },
     { text: "<step>", weight: 50, children: [ { text: "<sub-step>", weight: 1 }, { text: "<sub-step>", weight: 1, state: "running" } ] }
   ],
-  next_steps: "<planned actions>",
-  notes: "<decisions, chosen values, blockers — facts only>"
+  next_steps: "<planned actions, one per line>",
+  notes: "<decisions, chosen values, blockers — one per line, - bullets and backticks welcome>"
 } })
 `;
 
